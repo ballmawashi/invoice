@@ -687,7 +687,7 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
   @page { size: A4 portrait; margin: 0; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: "Hiragino Kaku Gothic ProN","Meiryo","Yu Gothic","MS PGothic",sans-serif; font-size:12px; background:#fff; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-  .page { width:210mm; min-height:297mm; padding:18mm 16mm; background:#fff; margin:0 auto; }
+  .page { width:210mm; padding:18mm 16mm; background:#fff; margin:0 auto; }
   @media screen { body { background:#ccc; } .page { box-shadow:0 0 20px rgba(0,0,0,0.2); margin:20px auto; } }
   table { width:100%; border-collapse:collapse; }
 </style>
