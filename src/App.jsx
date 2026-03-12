@@ -553,7 +553,7 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
         </div>
       </div>
       {/* Bank info below totals */}
-      {settings.bankName && invoice.docType !== "estimate" && invoice.docType !== "delivery" && invoice.docType !== "receipt" && (
+      {settings.bankName && (!invoice.docType || invoice.docType === "invoice") && (
         <div className="bank-section" style={A4.bankSection}>
           <div className="note-title" style={A4.noteTitle}>お振込先</div>
           <div className="note-text" style={A4.noteText}>
@@ -842,8 +842,8 @@ const A4 = {
   noteBox: { flex: 1 },
   noteTitle: { fontWeight: 700, fontSize: 12, color: "#6B7280", marginBottom: 4 },
   noteText: { fontSize: 11, lineHeight: 1.8, color: "#4B5563" },
-  calcBox: { width: "220px", border: "1px solid #E5E7EB", borderRadius: 4, overflow: "hidden" },
-  calcRow: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", padding: "6px 12px", fontSize: 12, borderBottom: "1px solid #F3F4F6" },
-  calcTotal: { display: "flex", justifyContent: "space-between", padding: "8px 12px", background: "#2C3E50", color: "#fff", fontSize: 14, fontWeight: 800 },
+  calcBox: { width: "240px", border: "1px solid #E5E7EB", borderRadius: 4, overflow: "hidden" },
+  calcRow: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "4px", padding: "6px 10px", fontSize: 11, borderBottom: "1px solid #F3F4F6", whiteSpace: "nowrap" },
+  calcTotal: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", background: "#2C3E50", color: "#fff", fontSize: 12, fontWeight: 800, whiteSpace: "nowrap" },
   bankSection: { marginTop: 16, paddingTop: 14, borderTop: "1px solid #E5E7EB" },
 };
