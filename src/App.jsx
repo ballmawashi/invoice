@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import html2pdf from "html2pdf.js";
 
 // ============================================================
@@ -25,13 +25,13 @@ const calcItem = (item) => {
 
 const calcTotals = (items) => {
   let subtotal = 0;
-  const taxGroups = {};
+  const taxGroups = Object.create(null); // prevent prototype pollution
   items.forEach((item) => {
     const { taxExcluded, taxAmount } = calcItem(item);
     subtotal += taxExcluded;
     const rate = parseFloat(item.taxRate) || 0;
     if (rate > 0) {
-      const rateKey = item.taxRate;
+      const rateKey = String(item.taxRate);
       if (!taxGroups[rateKey]) taxGroups[rateKey] = 0;
       taxGroups[rateKey] += taxAmount;
     }
@@ -50,14 +50,142 @@ const nextMonth = () => {
   return d.toISOString().split("T")[0];
 };
 
-const STORAGE_KEY = "invoiceApp_v2";
-const load = () => { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch { return {}; } };
-const save = (data) => localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+// ============================================================
+// SECURITY UTILITIES
+// ============================================================
+const sanitize = (str, maxLen = 500) =>
+  (str === null || str === undefined) ? "" : String(str).trim().slice(0, maxLen);
 
+const sanitizeNumber = (v, min = 0, max = 999999999) => {
+  const n = parseFloat(String(v).replace(/[^0-9.-]/g, "")) || 0;
+  return Math.max(min, Math.min(max, n));
+};
+
+const isValidDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s));
+const isValidEmail = (s) => !s || /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(s);
+const isValidPhone = (s) => !s || /^[\d\s\-+()]{6,20}$/.test(s);
+const sanitizeFilename = (s) =>
+  String(s || "").replace(/[/\\?%*:|"<>]/g, "_").replace(/\.\./g, "_").slice(0, 100) || "document";
+
+const safeParse = (s) => {
+  try {
+    const obj = JSON.parse(s);
+    if (obj !== null && typeof obj === "object") return JSON.parse(JSON.stringify(obj));
+    return obj;
+  } catch { return null; }
+};
+
+// ============================================================
+// ENCRYPTED STORAGE (AES-256-GCM + PBKDF2)
+// ============================================================
+const STORAGE_KEY = "invoiceApp_v3";
+const PBKDF2_ITERATIONS = 100000;
+
+const bufToB64 = (buf) => {
+  const bytes = new Uint8Array(buf instanceof ArrayBuffer ? buf : buf.buffer);
+  let str = "";
+  for (let i = 0; i < bytes.length; i += 8192) {
+    str += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+  }
+  return btoa(str);
+};
+
+const b64ToBuf = (b64) => Uint8Array.from(atob(b64), c => c.charCodeAt(0)).buffer;
+
+const deriveKey = async (password, salt) => {
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]
+  );
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt: typeof salt === "string" ? b64ToBuf(salt) : salt,
+      iterations: PBKDF2_ITERATIONS, hash: "SHA-256" },
+    keyMaterial,
+    { name: "AES-GCM", length: 256 },
+    false, ["encrypt", "decrypt"]
+  );
+};
+
+const encryptStr = async (key, plaintext) => {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv }, key, new TextEncoder().encode(plaintext)
+  );
+  return { iv: bufToB64(iv), data: bufToB64(ciphertext) };
+};
+
+const decryptStr = async (key, iv, data) => {
+  const plaintext = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv: new Uint8Array(b64ToBuf(iv)) }, key, b64ToBuf(data)
+  );
+  return new TextDecoder().decode(plaintext);
+};
+
+const hasStoredData = () => {
+  try {
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    return !!(stored && stored.iv && stored.data && stored.salt);
+  } catch { return false; }
+};
+
+const getStoredSalt = () => {
+  try {
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    if (stored && stored.salt) return stored.salt;
+  } catch {}
+  return bufToB64(crypto.getRandomValues(new Uint8Array(16)));
+};
+
+const loadDecrypted = async (key) => {
+  try {
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    if (!stored || !stored.iv || !stored.data) return {};
+    const plaintext = await decryptStr(key, stored.iv, stored.data);
+    return safeParse(plaintext) || {};
+  } catch { return null; } // null = wrong password
+};
+
+const saveEncrypted = async (key, salt, data) => {
+  const { iv, data: cipher } = await encryptStr(key, JSON.stringify(data));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ salt, iv, data: cipher }));
+};
+
+const wipeAllData = () => localStorage.removeItem(STORAGE_KEY);
+
+// ============================================================
+// BACKUP / RESTORE
+// ============================================================
+const exportBackup = (data) => {
+  const json = JSON.stringify({ ...data, _exportedAt: new Date().toISOString(), _version: 3 }, null, 2);
+  const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `invoice_backup_${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
+const validateImportData = (obj) => {
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return null;
+  const settings = (obj.settings && typeof obj.settings === "object" && !Array.isArray(obj.settings))
+    ? obj.settings : {};
+  const invoices = Array.isArray(obj.invoices)
+    ? obj.invoices.filter(i => i && typeof i === "object" && typeof i.id === "string")
+    : [];
+  return { settings, invoices };
+};
+
+// ============================================================
+// SESSION TIMEOUT
+// ============================================================
+const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+
+// ============================================================
+// CONSTANTS
+// ============================================================
 const defaultItem = () => ({ id: genId(), name: "", taxMode: "exclusive", qty: 1, unitPrice: "", taxRate: "0.10" });
-
 const statusLabels = { draft: "下書き", sent: "送付済み", paid: "入金済み", cancelled: "キャンセル" };
-
 const DOC_TYPES = [
   { value: "invoice",  label: "請求書", bannerLabel: "ご請求金額",  noLabel: "請求書番号", dateLabel: "発行日", date2Label: "支払期限", showDate2: true  },
   { value: "estimate", label: "見積書", bannerLabel: "お見積金額",  noLabel: "見積書番号", dateLabel: "発行日", date2Label: "有効期限", showDate2: true  },
@@ -66,6 +194,138 @@ const DOC_TYPES = [
 ];
 const getDocType = (v) => DOC_TYPES.find(d => d.value === v) || DOC_TYPES[0];
 const statusColors = { draft: "#8B7355", sent: "#2563EB", paid: "#16A34A", cancelled: "#DC2626" };
+
+// ============================================================
+// LOCK SCREEN
+// ============================================================
+function LockScreen({ isNew, onUnlock, onWipe }) {
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (loading || !pw) return;
+    setError("");
+    if (isNew) {
+      if (pw.length < 6) { setError("パスワードは6文字以上必要です"); return; }
+      if (pw !== pw2) { setError("パスワードが一致しません"); return; }
+    }
+    setLoading(true);
+    try {
+      const salt = getStoredSalt();
+      const key = await deriveKey(pw, salt);
+      if (isNew) {
+        onUnlock(key, salt, {});
+      } else {
+        const data = await loadDecrypted(key);
+        if (data === null) { setError("パスワードが正しくありません"); setLoading(false); return; }
+        onUnlock(key, salt, data);
+      }
+    } catch { setError("エラーが発生しました"); setLoading(false); }
+  };
+
+  const doWipe = () => {
+    if (window.confirm("すべてのデータを消去してリセットします。\nこの操作は元に戻せません。よろしいですか？")) {
+      wipeAllData();
+      onWipe();
+    }
+  };
+
+  return (
+    <div style={{ minHeight:"100vh", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", background:"#F8F7F4", padding:20, fontFamily:"'Hiragino Kaku Gothic ProN','Meiryo',sans-serif" }}>
+      <div style={{ background:"#fff", borderRadius:16, padding:32, width:"100%", maxWidth:360, boxShadow:"0 4px 24px rgba(0,0,0,0.1)" }}>
+        <div style={{ textAlign:"center", marginBottom:24 }}>
+          <div style={{ fontSize:48, marginBottom:8 }}>🔒</div>
+          <h1 style={{ fontSize:20, fontWeight:800, color:"#2C3E50", margin:0 }}>請求書アプリ</h1>
+          <p style={{ fontSize:13, color:"#6B7280", marginTop:8, lineHeight:1.6 }}>
+            {isNew ? "データ保護のためパスワードを設定してください" : "パスワードを入力してください"}
+          </p>
+        </div>
+        <form onSubmit={submit}>
+          <input type="password" value={pw} onChange={e => setPw(e.target.value)}
+            placeholder={isNew ? "新しいパスワード（6文字以上）" : "パスワード"}
+            autoFocus autoComplete={isNew ? "new-password" : "current-password"}
+            style={{ width:"100%", padding:"12px 14px", border:"1.5px solid #E5E7EB", borderRadius:8, fontSize:14, boxSizing:"border-box", outline:"none", marginBottom:10 }} />
+          {isNew && (
+            <input type="password" value={pw2} onChange={e => setPw2(e.target.value)}
+              placeholder="パスワード（確認）" autoComplete="new-password"
+              style={{ width:"100%", padding:"12px 14px", border:"1.5px solid #E5E7EB", borderRadius:8, fontSize:14, boxSizing:"border-box", outline:"none", marginBottom:10 }} />
+          )}
+          {error && <div style={{ color:"#DC2626", fontSize:12, marginBottom:10 }}>{error}</div>}
+          <button type="submit" disabled={loading || !pw}
+            style={{ width:"100%", background:"#2C3E50", color:"#fff", border:"none", borderRadius:10, padding:"13px 0", fontSize:15, fontWeight:700, cursor:loading?"wait":"pointer", opacity:!pw?0.5:1 }}>
+            {loading ? "処理中..." : isNew ? "設定してアプリを開く" : "ロックを解除"}
+          </button>
+        </form>
+        {!isNew && (
+          <div style={{ marginTop:20, textAlign:"center" }}>
+            <button onClick={doWipe}
+              style={{ background:"none", border:"none", color:"#DC2626", fontSize:12, cursor:"pointer", textDecoration:"underline" }}>
+              データを消去してリセット
+            </button>
+          </div>
+        )}
+      </div>
+      <p style={{ marginTop:16, fontSize:11, color:"#9CA3AF", textAlign:"center", maxWidth:300, lineHeight:1.7 }}>
+        データはパスワードで暗号化されデバイスに保存されます。<br />パスワードを忘れるとデータを復元できません。
+      </p>
+    </div>
+  );
+}
+
+// ============================================================
+// CHANGE PASSWORD MODAL
+// ============================================================
+function ChangePasswordModal({ settings, invoices, onChanged, onClose }) {
+  const [newPw, setNewPw] = useState("");
+  const [newPw2, setNewPw2] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (loading || !newPw) return;
+    setError("");
+    if (newPw.length < 6) { setError("パスワードは6文字以上必要です"); return; }
+    if (newPw !== newPw2) { setError("パスワードが一致しません"); return; }
+    setLoading(true);
+    try {
+      const newSalt = bufToB64(crypto.getRandomValues(new Uint8Array(16)));
+      const newKey = await deriveKey(newPw, newSalt);
+      await saveEncrypted(newKey, newSalt, { settings, invoices });
+      onChanged(newKey, newSalt);
+    } catch { setError("エラーが発生しました"); setLoading(false); }
+  };
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200, padding:20 }}>
+      <div style={{ background:"#fff", borderRadius:16, padding:28, width:"100%", maxWidth:340, boxShadow:"0 8px 32px rgba(0,0,0,0.2)" }}>
+        <h3 style={{ fontSize:16, fontWeight:800, color:"#2C3E50", marginBottom:16 }}>パスワードを変更</h3>
+        <form onSubmit={submit}>
+          <input type="password" value={newPw} onChange={e => setNewPw(e.target.value)}
+            placeholder="新しいパスワード（6文字以上）" autoFocus autoComplete="new-password"
+            style={{ width:"100%", padding:"10px 12px", border:"1.5px solid #E5E7EB", borderRadius:8, fontSize:14, boxSizing:"border-box", outline:"none", marginBottom:10 }} />
+          <input type="password" value={newPw2} onChange={e => setNewPw2(e.target.value)}
+            placeholder="パスワード（確認）" autoComplete="new-password"
+            style={{ width:"100%", padding:"10px 12px", border:"1.5px solid #E5E7EB", borderRadius:8, fontSize:14, boxSizing:"border-box", outline:"none", marginBottom:10 }} />
+          {error && <div style={{ color:"#DC2626", fontSize:12, marginBottom:10 }}>{error}</div>}
+          <div style={{ display:"flex", gap:10 }}>
+            <button type="button" onClick={onClose}
+              style={{ flex:1, background:"#F3F4F6", color:"#374151", border:"1.5px solid #D1D5DB", borderRadius:8, padding:"10px 0", fontSize:14, fontWeight:600, cursor:"pointer" }}>
+              キャンセル
+            </button>
+            <button type="submit" disabled={loading || !newPw}
+              style={{ flex:1, background:"#2C3E50", color:"#fff", border:"none", borderRadius:8, padding:"10px 0", fontSize:14, fontWeight:700, cursor:"pointer", opacity:!newPw?0.5:1 }}>
+              {loading ? "処理中..." : "変更する"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
 
 // ============================================================
 // PRIMITIVE COMPONENTS
@@ -97,10 +357,11 @@ function Toggle({ options, value, onChange }) {
 // ============================================================
 // SETTINGS SCREEN
 // ============================================================
-function SettingsScreen({ settings, onSave }) {
+function SettingsScreen({ settings, onSave, onExport, onImportFile, onWipe, onChangePassword }) {
   const [form, setForm] = useState(settings);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const isCorp = (form.entityType || "corporate") === "corporate";
+  const importRef = useRef();
 
   return (
     <div style={S.screen}>
@@ -168,6 +429,32 @@ function SettingsScreen({ settings, onSave }) {
       </div>
 
       <Btn onClick={() => onSave(form)} style={{ width: "100%", marginTop: 8 }}>保存する</Btn>
+
+      <div style={S.card}>
+        <h3 style={S.sectionTitle}>セキュリティ</h3>
+        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+          <Btn variant="secondary" onClick={onChangePassword} style={{ width:"100%", fontSize:13 }}>
+            🔑 パスワードを変更
+          </Btn>
+          <div style={{ display:"flex", gap:10 }}>
+            <Btn variant="secondary" onClick={onExport} style={{ flex:1, fontSize:13 }}>
+              📦 バックアップをエクスポート
+            </Btn>
+            <Btn variant="secondary" onClick={() => importRef.current?.click()} style={{ flex:1, fontSize:13 }}>
+              📥 バックアップをインポート
+            </Btn>
+          </div>
+          <input ref={importRef} type="file" accept=".json" style={{ display:"none" }} onChange={onImportFile} />
+          <div style={{ borderTop:"1px solid #F3F4F6", paddingTop:10 }}>
+            <Btn variant="danger" onClick={onWipe} style={{ width:"100%", fontSize:13 }}>
+              🗑️ データを消去してリセット
+            </Btn>
+            <p style={{ fontSize:11, color:"#9CA3AF", marginTop:6, textAlign:"center" }}>
+              すべてのデータが削除されます。この操作は元に戻せません。
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -188,15 +475,24 @@ function ItemRow({ item, onChange, onRemove }) {
         />
         <button style={S.removeBtn} onClick={onRemove}>×</button>
       </div>
-      <Input value={item.name} onChange={e => onChange("name", e.target.value)} placeholder="品目名・作業内容" />
+      <Input
+        value={item.name}
+        onChange={e => onChange("name", sanitize(e.target.value, 200))}
+        placeholder="品目名・作業内容"
+      />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr 1fr", gap: 8, marginTop: 8 }}>
         <div>
           <label style={S.miniLabel}>数量</label>
-          <Input type="number" value={item.qty} onChange={e => onChange("qty", e.target.value)} />
+          <Input type="number" value={item.qty}
+            onChange={e => onChange("qty", e.target.value)}
+            onBlur={e => onChange("qty", sanitizeNumber(e.target.value, 0, 99999))} />
         </div>
         <div>
           <label style={S.miniLabel}>単価（{isInclusive ? "税込" : "税抜"}・円）</label>
-          <Input type="number" value={item.unitPrice} onChange={e => onChange("unitPrice", e.target.value)} placeholder="0" />
+          <Input type="number" value={item.unitPrice}
+            onChange={e => onChange("unitPrice", e.target.value)}
+            onBlur={e => onChange("unitPrice", sanitizeNumber(e.target.value, 0, 999999999))}
+            placeholder="0" />
         </div>
         <div>
           <label style={S.miniLabel}>税率</label>
@@ -226,6 +522,8 @@ function ItemRow({ item, onChange, onRemove }) {
 // ============================================================
 // INVOICE FORM
 // ============================================================
+const MAX_ITEMS = 50;
+
 function InvoiceForm({ settings, invoices, onSave, editInvoice, onCancel }) {
   const nextNum = (settings.invoiceStartNum || 1) + invoices.filter(i => i.status !== "cancelled").length;
   const defaultNum = `${settings.invoicePrefix || "INV"}-${String(nextNum).padStart(3, "0")}`;
@@ -235,16 +533,29 @@ function InvoiceForm({ settings, invoices, onSave, editInvoice, onCancel }) {
     clientName: "", clientAddress: "", clientDept: "", subject: "", note: "",
     items: [defaultItem()], status: "draft",
   });
+  const [formError, setFormError] = useState("");
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const setItem = (idx, k, v) => { const items = [...form.items]; items[idx] = { ...items[idx], [k]: v }; setForm(f => ({ ...f, items })); };
-  const addItem = () => setForm(f => ({ ...f, items: [...f.items, { ...defaultItem(), taxRate: settings.defaultTaxRate || "0.10" }] }));
+  const addItem = () => {
+    if (form.items.length >= MAX_ITEMS) { setFormError(`明細は${MAX_ITEMS}件までです`); return; }
+    setForm(f => ({ ...f, items: [...f.items, { ...defaultItem(), taxRate: settings.defaultTaxRate || "0.10" }] }));
+  };
   const removeItem = (idx) => { const items = form.items.filter((_, i) => i !== idx); setForm(f => ({ ...f, items: items.length ? items : [defaultItem()] })); };
   const { subtotal, taxGroups, grandTotal } = calcTotals(form.items);
   const [preview, setPreview] = useState(false);
 
+  const handleSave = (status) => {
+    setFormError("");
+    if (!sanitize(form.invoiceNo, 50)) { setFormError("書類番号を入力してください"); return; }
+    if (!sanitize(form.clientName, 200)) { setFormError("宛先を入力してください"); return; }
+    if (!sanitize(form.subject, 200)) { setFormError("件名を入力してください"); return; }
+    if (form.issueDate && !isValidDate(form.issueDate)) { setFormError("発行日の形式が正しくありません"); return; }
+    onSave({ ...form, status });
+  };
+
   if (preview) {
-    return <InvoicePreview invoice={form} settings={settings} onBack={() => setPreview(false)} onSave={() => onSave({ ...form, status: form.status || "draft" })} />;
+    return <InvoicePreview invoice={form} settings={settings} onBack={() => setPreview(false)} onSave={() => handleSave(form.status || "draft")} />;
   }
 
   return (
@@ -321,8 +632,10 @@ function InvoiceForm({ settings, invoices, onSave, editInvoice, onCancel }) {
         <textarea style={{ ...S.input, height: 80, resize: "vertical" }} value={form.note} onChange={e => set("note", e.target.value)} placeholder="お振込手数料はご負担願います。" />
       </div>
 
+      {formError && <div style={{ color:"#DC2626", fontSize:13, marginBottom:10, padding:"8px 12px", background:"#FEE2E2", borderRadius:8 }}>{formError}</div>}
+
       <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
-        <Btn variant="secondary" onClick={() => onSave({ ...form, status: "draft" })} style={{ flex: 1 }}>下書き保存</Btn>
+        <Btn variant="secondary" onClick={() => handleSave("draft")} style={{ flex: 1 }}>下書き保存</Btn>
         <Btn onClick={() => setPreview(true)} style={{ flex: 1 }}>プレビュー・PDF</Btn>
       </div>
     </div>
@@ -358,7 +671,7 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
       const unitEx = qty > 0 ? Math.floor(c.taxExcluded / qty) : 0;
       return `<tr>
         <td style="padding:6px 8px;border:1px solid #ddd;font-size:12px;">${esc(item.name)}</td>
-        <td style="padding:6px 8px;border:1px solid #ddd;text-align:center;font-size:12px;">${esc(qty)}</td>
+        <td style="padding:6px 8px;border:1px solid #ddd;text-align:center;font-size:12px;">${esc(String(qty))}</td>
         <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;font-size:12px;">${formatYen(unitEx)}</td>
         <td style="padding:6px 8px;border:1px solid #ddd;text-align:center;font-size:12px;">${Math.round(parseFloat(item.taxRate)*100)}%</td>
         <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;font-size:12px;">${formatYen(c.taxAmount)}</td>
@@ -447,7 +760,6 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
 
 </div></body></html>`;
 
-    // Create temporary container, render HTML, convert to PDF
     const container = document.createElement("div");
     container.innerHTML = html;
     const pageEl = container.querySelector(".page");
@@ -456,9 +768,10 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
     container.style.top = "0";
     document.body.appendChild(container);
 
+    const safeFilename = sanitizeFilename(`${dt.label}_${inv.invoiceNo}.pdf`);
     const opt = {
       margin: 0,
-      filename: `${dt.label}_${inv.invoiceNo}.pdf`,
+      filename: safeFilename,
       image: { type: "jpeg", quality: 0.98 },
       html2canvas: { scale: 2, useCORS: true, letterRendering: true },
       jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
@@ -470,8 +783,6 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
       document.body.removeChild(container);
     });
   };
-
-
 
   // A4 ratio preview: scale to fit container
   const A4Content = (
@@ -665,41 +976,158 @@ function ArchiveScreen({ invoices, settings, onEdit, onDelete, onNew }) {
 // ============================================================
 // APP ROOT
 // ============================================================
+const DEFAULT_SETTINGS = {
+  companyName: "", entityType: "corporate", invoicePrefix: "INV",
+  invoiceStartNum: 1, defaultTaxRate: "0.10", roundingMode: "floor"
+};
+
 export default function App() {
-  const stored = load();
-  const [settings, setSettings] = useState(stored.settings || {
-    companyName: "", entityType: "corporate", invoicePrefix: "INV", invoiceStartNum: 1, defaultTaxRate: "0.10", roundingMode: "floor"
-  });
-  const [invoices, setInvoices] = useState(stored.invoices || []);
+  const [sessionKey, setSessionKey] = useState(null);
+  const [sessionSalt, setSessionSalt] = useState(null);
+  const [locked, setLocked] = useState(true);
+  const [isNewUser, setIsNewUser] = useState(!hasStoredData());
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+  const [invoices, setInvoices] = useState([]);
   const [tab, setTab] = useState("home");
   const [editInvoice, setEditInvoice] = useState(null);
   const [toast, setToast] = useState(null);
   const [homeDetail, setHomeDetail] = useState(null);
+  const [showChangePw, setShowChangePw] = useState(false);
+  const sessionTimerRef = useRef(null);
 
-  const persist = (s, inv) => { setSettings(s); setInvoices(inv); save({ settings: s, invoices: inv }); };
+  // Auto-lock after 30 minutes of inactivity
+  const resetTimer = useCallback(() => {
+    if (sessionTimerRef.current) clearTimeout(sessionTimerRef.current);
+    sessionTimerRef.current = setTimeout(() => {
+      setSessionKey(null);
+      setSessionSalt(null);
+      setSettings(DEFAULT_SETTINGS);
+      setInvoices([]);
+      setLocked(true);
+      setIsNewUser(false);
+    }, SESSION_TIMEOUT_MS);
+  }, []);
+
+  useEffect(() => {
+    if (!locked && sessionKey) {
+      const events = ["mousemove", "keydown", "click", "touchstart", "scroll"];
+      events.forEach(e => window.addEventListener(e, resetTimer, { passive: true }));
+      resetTimer();
+      return () => {
+        events.forEach(e => window.removeEventListener(e, resetTimer));
+        if (sessionTimerRef.current) clearTimeout(sessionTimerRef.current);
+      };
+    }
+  }, [locked, sessionKey, resetTimer]);
+
+  const handleUnlock = (key, salt, data) => {
+    setSessionKey(key);
+    setSessionSalt(salt);
+    if (data && data.settings) setSettings(data.settings);
+    if (data && Array.isArray(data.invoices)) setInvoices(data.invoices);
+    setLocked(false);
+    setIsNewUser(false);
+  };
+
+  const handleWipe = () => {
+    setIsNewUser(true);
+    setSessionKey(null);
+    setSessionSalt(null);
+    setSettings(DEFAULT_SETTINGS);
+    setInvoices([]);
+    setLocked(true);
+  };
+
+  const handleLock = () => {
+    setSessionKey(null);
+    setSessionSalt(null);
+    setSettings(DEFAULT_SETTINGS);
+    setInvoices([]);
+    setLocked(true);
+    setIsNewUser(false);
+  };
+
+  const persist = async (s, inv) => {
+    if (!sessionKey || !sessionSalt) return;
+    setSettings(s);
+    setInvoices(inv);
+    await saveEncrypted(sessionKey, sessionSalt, { settings: s, invoices: inv });
+  };
+
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
 
-  const saveSettings = (s) => { persist(s, invoices); showToast("設定を保存しました"); setTab("home"); };
-  const saveInvoice = (inv) => {
+  const saveSettings = async (s) => {
+    await persist(s, invoices);
+    showToast("設定を保存しました");
+    setTab("home");
+  };
+
+  const saveInvoice = async (inv) => {
     const updated = invoices.find(i => i.id === inv.id)
       ? invoices.map(i => i.id === inv.id ? inv : i)
       : [...invoices, inv];
-    persist(settings, updated);
+    await persist(settings, updated);
     showToast("請求書を保存しました");
     setEditInvoice(null);
     setTab("archive");
   };
-  const deleteInvoice = (id) => {
+
+  const deleteInvoice = async (id) => {
     if (!window.confirm("この請求書を削除しますか？")) return;
-    persist(settings, invoices.filter(i => i.id !== id));
+    await persist(settings, invoices.filter(i => i.id !== id));
     showToast("削除しました");
   };
+
+  const handleExport = () => {
+    exportBackup({ settings, invoices });
+    showToast("バックアップをエクスポートしました");
+  };
+
+  const handleImportFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = safeParse(text);
+      const validated = validateImportData(parsed);
+      if (!validated) { showToast("無効なファイルです"); return; }
+      await persist(validated.settings, validated.invoices);
+      showToast("インポート完了");
+    } catch { showToast("インポートに失敗しました"); }
+    e.target.value = "";
+  };
+
+  const handleWipeFromSettings = () => {
+    if (window.confirm("すべてのデータを消去してリセットします。\nこの操作は元に戻せません。よろしいですか？")) {
+      wipeAllData();
+      handleWipe();
+    }
+  };
+
+  const handlePasswordChanged = (newKey, newSalt) => {
+    setSessionKey(newKey);
+    setSessionSalt(newSalt);
+    setShowChangePw(false);
+    showToast("パスワードを変更しました");
+  };
+
+  if (locked) {
+    return <LockScreen isNew={isNewUser} onUnlock={handleUnlock} onWipe={handleWipe} />;
+  }
 
   const { grandTotal: totalRevenue } = calcTotals(invoices.flatMap(i => i.items));
 
   return (
     <div style={S.app}>
       {toast && <div style={S.toast}>{toast}</div>}
+      {showChangePw && (
+        <ChangePasswordModal
+          settings={settings}
+          invoices={invoices}
+          onChanged={handlePasswordChanged}
+          onClose={() => setShowChangePw(false)}
+        />
+      )}
 
       <div style={S.content}>
         {tab === "home" && homeDetail && (
@@ -745,6 +1173,9 @@ export default function App() {
                 </div>
               );
             })}
+            <Btn variant="ghost" onClick={handleLock} style={{ width: "100%", marginTop: 12, fontSize: 13 }}>
+              🔒 ロック
+            </Btn>
           </div>
         )}
         {tab === "new" && (
@@ -754,7 +1185,14 @@ export default function App() {
           <ArchiveScreen invoices={invoices} settings={settings} onEdit={(inv) => { setEditInvoice(inv); setTab("new"); }} onDelete={deleteInvoice} onNew={() => { setEditInvoice(null); setTab("new"); }} />
         )}
         {tab === "settings" && (
-          <SettingsScreen settings={settings} onSave={saveSettings} />
+          <SettingsScreen
+            settings={settings}
+            onSave={saveSettings}
+            onExport={handleExport}
+            onImportFile={handleImportFile}
+            onWipe={handleWipeFromSettings}
+            onChangePassword={() => setShowChangePw(true)}
+          />
         )}
       </div>
 
