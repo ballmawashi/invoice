@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import html2pdf from "html2pdf.js";
 
 // ============================================================
 // UTILS
@@ -446,16 +447,28 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
 
 </div></body></html>`;
 
-    // Create Blob and trigger download
-    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${esc(dt.label)}_${esc(inv.invoiceNo)}.html`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    // Create temporary container, render HTML, convert to PDF
+    const container = document.createElement("div");
+    container.innerHTML = html;
+    const pageEl = container.querySelector(".page");
+    container.style.position = "fixed";
+    container.style.left = "-9999px";
+    container.style.top = "0";
+    document.body.appendChild(container);
+
+    const opt = {
+      margin: 0,
+      filename: `${dt.label}_${inv.invoiceNo}.pdf`,
+      image: { type: "jpeg", quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true, letterRendering: true },
+      jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+    };
+
+    html2pdf().set(opt).from(pageEl || container).save().then(() => {
+      document.body.removeChild(container);
+    }).catch(() => {
+      document.body.removeChild(container);
+    });
   };
 
 
@@ -569,7 +582,7 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
       <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
         <button style={S.backBtn} onClick={onBack}>← 編集に戻る</button>
         <Btn onClick={onSave} variant="secondary" style={{ fontSize: 13, padding: "8px 14px" }}>💾 保存する</Btn>
-        <Btn onClick={handlePrint} style={{ fontSize: 13, padding: "8px 14px" }}>⬇️ HTMLダウンロード</Btn>
+        <Btn onClick={handlePrint} style={{ fontSize: 13, padding: "8px 14px" }}>📄 PDFダウンロード</Btn>
       </div>
 
       {/* Scaled A4 preview that shows the full page */}
