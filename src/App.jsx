@@ -395,7 +395,7 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
       ${inv.clientAddress ? `<div style="font-size:10px;color:#555;line-height:1.7;">${esc(inv.clientAddress)}</div>` : ""}
       <div style="margin-top:8px;font-size:12px;font-weight:700;">件名：${esc(inv.subject)}</div>
     </div>
-    <div style="flex:1;text-align:right;">
+    <div style="flex:1;text-align:right;margin-top:24px;">
       <div style="font-size:14px;font-weight:800;margin-bottom:4px;">${esc(iName)}</div>
       ${iPerson ? `<div style="font-size:10px;color:#555;line-height:1.9;">${esc(iPerson)}</div>` : ""}
       ${s.zip ? `<div style="font-size:10px;color:#555;line-height:1.9;">〒${esc(s.zip)}</div>` : ""}
@@ -441,7 +441,7 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
   ${s.bankName && inv.docType === "invoice" ? `
   <div style="border-top:1px solid #ddd;padding-top:12px;">
     <div style="font-size:10px;font-weight:700;color:#666;margin-bottom:4px;">お振込先</div>
-    <div style="font-size:10px;line-height:1.8;color:#444;">${esc(s.bankName)} ${esc(s.branchName)}　${esc(s.accountType)}　${esc(s.accountNumber)}　${esc(s.accountName)}</div>
+    <div style="font-size:10px;line-height:1.8;color:#444;">${esc(s.bankName)} ${esc(s.branchName)}　${esc(s.accountType || "普通")}　${esc(s.accountNumber)}　${esc(s.accountName)}</div>
   </div>` : ""}
 
 </div></body></html>`;
@@ -557,7 +557,7 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
         <div className="bank-section" style={A4.bankSection}>
           <div className="note-title" style={A4.noteTitle}>お振込先</div>
           <div className="note-text" style={A4.noteText}>
-            {settings.bankName} {settings.branchName}　{settings.accountType}　{settings.accountNumber}　{settings.accountName}
+            {settings.bankName} {settings.branchName}　{settings.accountType || "普通"}　{settings.accountNumber}　{settings.accountName}
           </div>
         </div>
       )}
@@ -830,7 +830,7 @@ const A4 = {
   clientName: { fontSize: 18, fontWeight: 800, borderBottom: "2px solid #2C3E50", paddingBottom: 4, marginBottom: 6 },
   clientSub: { fontSize: 12, color: "#555", lineHeight: 1.7 },
   subject: { marginTop: 10, fontSize: 14, fontWeight: 700 },
-  issuerBox: { flex: 1, textAlign: "right" },
+  issuerBox: { flex: 1, textAlign: "right", marginTop: 24 },
   issuerName: { fontSize: 16, fontWeight: 800, marginBottom: 4 },
   issuerSub: { fontSize: 11, color: "#555", lineHeight: 1.9 },
   totalBanner: { background: "#2C3E50", color: "#fff", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 18px", borderRadius: 4, marginBottom: 20 },
