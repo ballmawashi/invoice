@@ -299,20 +299,20 @@ function InvoiceForm({ settings, invoices, onSave, editInvoice, onCancel }) {
       </div>
 
       <div style={{ background:"#fff", borderRadius:12, marginBottom:14, boxShadow:"0 1px 4px rgba(0,0,0,0.08)", overflow:"hidden" }}>
-        <p style={{ display:"flex", justifyContent:"space-between", margin:0, padding:"8px 16px", borderBottom:"1px solid #F3F4F6", fontSize:"13px", color:"#4B5563", lineHeight:"20px" }}>
-          <b style={{ fontWeight:400, whiteSpace:"pre" }}>小計（税抜）</b>
-          <b style={{ fontWeight:400, whiteSpace:"pre" }}>{formatYen(subtotal)}</b>
-        </p>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 16px", borderBottom:"1px solid #F3F4F6" }}>
+          <span style={{ fontSize:"13px", color:"#4B5563" }}>小計（税抜）</span>
+          <span style={{ fontSize:"13px", color:"#4B5563" }}>{formatYen(subtotal)}</span>
+        </div>
         {Object.entries(taxGroups).map(([rate, amount]) => (
-          <p key={rate} style={{ display:"flex", justifyContent:"space-between", margin:0, padding:"8px 16px", borderBottom:"1px solid #F3F4F6", fontSize:"13px", color:"#4B5563", lineHeight:"20px" }}>
-            <b style={{ fontWeight:400, whiteSpace:"pre" }}>{"消費税" + Math.round(parseFloat(rate)*100) + "%"}</b>
-            <b style={{ fontWeight:400, whiteSpace:"pre" }}>{formatYen(amount)}</b>
-          </p>
+          <div key={rate} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 16px", borderBottom:"1px solid #F3F4F6" }}>
+            <span style={{ fontSize:"13px", color:"#4B5563" }}>消費税（{Math.round(parseFloat(rate)*100)}%）</span>
+            <span style={{ fontSize:"13px", color:"#4B5563" }}>{formatYen(amount)}</span>
+          </div>
         ))}
-        <p style={{ display:"flex", justifyContent:"space-between", margin:0, padding:"10px 16px", background:"#2C3E50", fontSize:"15px", fontWeight:800, color:"#fff", lineHeight:"22px" }}>
-          <b style={{ fontWeight:800, whiteSpace:"pre", color:"#fff" }}>合計金額</b>
-          <b style={{ fontWeight:800, whiteSpace:"pre", color:"#fff" }}>{formatYen(grandTotal)}</b>
-        </p>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 16px", background:"#2C3E50" }}>
+          <span style={{ fontSize:"13px", fontWeight:800, color:"#fff" }}>合計金額</span>
+          <span style={{ fontSize:"13px", fontWeight:800, color:"#fff" }}>{formatYen(grandTotal)}</span>
+        </div>
       </div>
 
       <div style={S.card}>
@@ -545,8 +545,8 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
           <div className="calc-row" style={A4.calcRow}><span>小計（税抜）</span><span>{formatYen(subtotal)}</span></div>
           {Object.entries(taxGroups).map(([rate, amt]) => (
             <div key={rate} className="calc-row" style={A4.calcRow}>
-              <span>消費税（{Math.round(parseFloat(rate) * 100)}%）</span>
-              <span>{formatYen(amt)}</span>
+              <span style={{ whiteSpace:"nowrap" }}>消費税（{Math.round(parseFloat(rate) * 100)}%）</span>
+              <span style={{ whiteSpace:"nowrap" }}>{formatYen(amt)}</span>
             </div>
           ))}
           <div className="calc-total" style={A4.calcTotal}><span>合計金額</span><span>{formatYen(grandTotal)}</span></div>
@@ -842,8 +842,8 @@ const A4 = {
   noteBox: { flex: 1 },
   noteTitle: { fontWeight: 700, fontSize: 12, color: "#6B7280", marginBottom: 4 },
   noteText: { fontSize: 11, lineHeight: 1.8, color: "#4B5563" },
-  calcBox: { width: "200px", border: "1px solid #E5E7EB", borderRadius: 4, overflow: "hidden" },
-  calcRow: { display: "flex", justifyContent: "space-between", padding: "6px 12px", fontSize: 12, borderBottom: "1px solid #F3F4F6" },
+  calcBox: { width: "220px", border: "1px solid #E5E7EB", borderRadius: 4, overflow: "hidden" },
+  calcRow: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", padding: "6px 12px", fontSize: 12, borderBottom: "1px solid #F3F4F6" },
   calcTotal: { display: "flex", justifyContent: "space-between", padding: "8px 12px", background: "#2C3E50", color: "#fff", fontSize: 14, fontWeight: 800 },
   bankSection: { marginTop: 16, paddingTop: 14, borderTop: "1px solid #E5E7EB" },
 };
