@@ -356,12 +356,12 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
       const qty = parseFloat(item.qty) || 1;
       const unitEx = qty > 0 ? Math.floor(c.taxExcluded / qty) : 0;
       return `<tr>
-        <td style="padding:6px 8px;border:1px solid #ddd;">${esc(item.name)}</td>
-        <td style="padding:6px 8px;border:1px solid #ddd;text-align:center;">${esc(qty)}</td>
-        <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;">${formatYen(unitEx)}</td>
-        <td style="padding:6px 8px;border:1px solid #ddd;text-align:center;">${Math.round(parseFloat(item.taxRate)*100)}%</td>
-        <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;">${formatYen(c.taxAmount)}</td>
-        <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;">${formatYen(c.total)}</td>
+        <td style="padding:6px 8px;border:1px solid #ddd;font-size:12px;">${esc(item.name)}</td>
+        <td style="padding:6px 8px;border:1px solid #ddd;text-align:center;font-size:12px;">${esc(qty)}</td>
+        <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;font-size:12px;">${formatYen(unitEx)}</td>
+        <td style="padding:6px 8px;border:1px solid #ddd;text-align:center;font-size:12px;">${Math.round(parseFloat(item.taxRate)*100)}%</td>
+        <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;font-size:12px;">${formatYen(c.taxAmount)}</td>
+        <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;font-size:12px;">${formatYen(c.total)}</td>
       </tr>`;
     }).join("");
 
@@ -372,7 +372,7 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
 <style>
   @page { size: A4 portrait; margin: 0; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: "Hiragino Kaku Gothic ProN","Meiryo","Yu Gothic","MS PGothic",sans-serif; background:#fff; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  body { font-family: "Hiragino Kaku Gothic ProN","Meiryo","Yu Gothic","MS PGothic",sans-serif; font-size:12px; background:#fff; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   .page { width:210mm; min-height:297mm; padding:18mm 16mm; background:#fff; margin:0 auto; }
   @media screen { body { background:#ccc; } .page { box-shadow:0 0 20px rgba(0,0,0,0.2); margin:20px auto; } }
   table { width:100%; border-collapse:collapse; }
