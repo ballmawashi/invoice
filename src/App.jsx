@@ -348,7 +348,7 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
     const dt = getDocType(inv.docType);
 
     const taxRows = Object.entries(tg).map(([rate, amt]) =>
-      `<tr><td style="padding:5px 10px;border-bottom:1px solid #eee;">消費税（${Math.round(parseFloat(rate)*100)}%）</td><td style="padding:5px 10px;text-align:right;border-bottom:1px solid #eee;">${formatYen(amt)}</td></tr>`
+      `<tr><td style="padding:5px 10px;border-bottom:1px solid #eee;font-size:10px;">消費税（${Math.round(parseFloat(rate)*100)}%）</td><td style="padding:5px 10px;text-align:right;border-bottom:1px solid #eee;font-size:10px;">${formatYen(amt)}</td></tr>`
     ).join("");
 
     const itemRows = inv.items.map(item => {
