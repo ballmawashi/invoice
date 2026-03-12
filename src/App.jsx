@@ -767,7 +767,7 @@ export default function App() {
 // STYLES
 // ============================================================
 const S = {
-  app: { maxWidth: 480, margin: "0 auto", minHeight: "100vh", display: "flex", flexDirection: "column", background: "#F8F7F4", fontFamily: "'Hiragino Kaku Gothic ProN','Meiryo',sans-serif", position: "relative" },
+  app: { maxWidth: 480, width: "100%", margin: "0 auto", minHeight: "100vh", display: "flex", flexDirection: "column", background: "#F8F7F4", fontFamily: "'Hiragino Kaku Gothic ProN','Meiryo',sans-serif", position: "relative" },
   content: { flex: 1, paddingBottom: 80, overflowY: "auto" },
   screen: { padding: "20px 12px 16px" },
   screenTitle: { fontSize: 20, fontWeight: 700, color: "#2C3E50", marginBottom: 16 },
@@ -784,7 +784,7 @@ const S = {
   toggleWrap: { display: "flex", background: "#F3F4F6", borderRadius: 8, padding: 2, gap: 2, alignSelf: "flex-start" },
   toggleBtn: { fontSize: 12, padding: "5px 14px", borderRadius: 6, border: "none", cursor: "pointer", fontWeight: 600, background: "transparent", color: "#6B7280", transition: "all 0.15s" },
   toggleBtnActive: { background: "#2C3E50", color: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" },
-  nav: { position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 480, background: "#fff", borderTop: "1px solid #E5E7EB", display: "flex", justifyContent: "space-around", padding: "8px 0 12px", zIndex: 100 },
+  nav: { position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100vw", maxWidth: 480, background: "#fff", borderTop: "1px solid #E5E7EB", display: "flex", justifyContent: "space-around", padding: "8px 0 12px", zIndex: 100 },
   navBtn: { background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 2, cursor: "pointer", padding: "4px 8px" },
   totalRow: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "nowrap", padding: "6px 0", borderBottom: "1px solid #F3F4F6", fontSize: 14, color: "#4B5563", whiteSpace: "nowrap" },
   totalLine: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: "1px solid #F3F4F6", fontSize: 13, color: "#4B5563", lineHeight: 1.4, flexWrap: "nowrap" },
