@@ -767,7 +767,7 @@ export default function App() {
 // STYLES
 // ============================================================
 const S = {
-  app: { maxWidth: 480, width: "100%", margin: "0 auto", minHeight: "100vh", display: "flex", flexDirection: "column", background: "#F8F7F4", fontFamily: "'Hiragino Kaku Gothic ProN','Meiryo',sans-serif", position: "relative" },
+  app: { maxWidth: "100%", width: "100%", margin: "0 auto", minHeight: "100vh", display: "flex", flexDirection: "column", background: "#F8F7F4", fontFamily: "'Hiragino Kaku Gothic ProN','Meiryo',sans-serif", position: "relative" },
   content: { flex: 1, paddingBottom: 80, overflowY: "auto" },
   screen: { padding: "20px 12px 16px" },
   screenTitle: { fontSize: 20, fontWeight: 700, color: "#2C3E50", marginBottom: 16 },
