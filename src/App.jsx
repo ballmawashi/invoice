@@ -25,7 +25,7 @@ const calcItem = (item) => {
 
 const calcTotals = (items) => {
   let subtotal = 0;
-  const taxGroups = Object.create(null); // prevent prototype pollution
+  const taxGroups = Object.create(null);
   items.forEach((item) => {
     const { taxExcluded, taxAmount } = calcItem(item);
     subtotal += taxExcluded;
@@ -39,6 +39,23 @@ const calcTotals = (items) => {
   const totalTax = Object.values(taxGroups).reduce((a, b) => a + b, 0);
   return { subtotal, taxGroups, totalTax, grandTotal: subtotal + totalTax };
 };
+
+// Withholding tax (源泉徴収税) for sole proprietors
+const calcWithholding = (subtotal) => {
+  if (subtotal <= 0) return 0;
+  if (subtotal <= 1000000) return Math.floor(subtotal * 0.1021);
+  return Math.floor((subtotal - 1000000) * 0.2042 + 102100);
+};
+
+// Image file to base64 data URL
+const fileToBase64 = (file) => new Promise((resolve, reject) => {
+  if (!file || !file.type.startsWith("image/")) { reject(new Error("画像ファイルを選択してください")); return; }
+  if (file.size > 2 * 1024 * 1024) { reject(new Error("ファイルサイズは2MB以下にしてください")); return; }
+  const reader = new FileReader();
+  reader.onload = () => resolve(reader.result);
+  reader.onerror = reject;
+  reader.readAsDataURL(file);
+});
 
 const genId = () => Math.random().toString(36).slice(2, 9);
 const esc = (str) => String(str || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
@@ -62,8 +79,6 @@ const sanitizeNumber = (v, min = 0, max = 999999999) => {
 };
 
 const isValidDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s));
-const isValidEmail = (s) => !s || /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(s);
-const isValidPhone = (s) => !s || /^[\d\s\-+()]{6,20}$/.test(s);
 const sanitizeFilename = (s) =>
   String(s || "").replace(/[/\\?%*:|"<>]/g, "_").replace(/\.\./g, "_").slice(0, 100) || "document";
 
@@ -141,7 +156,7 @@ const loadDecrypted = async (key) => {
     if (!stored || !stored.iv || !stored.data) return {};
     const plaintext = await decryptStr(key, stored.iv, stored.data);
     return safeParse(plaintext) || {};
-  } catch { return null; } // null = wrong password
+  } catch { return null; }
 };
 
 const saveEncrypted = async (key, salt, data) => {
@@ -179,7 +194,7 @@ const validateImportData = (obj) => {
 // ============================================================
 // SESSION TIMEOUT
 // ============================================================
-const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 
 // ============================================================
 // CONSTANTS
@@ -355,6 +370,50 @@ function Toggle({ options, value, onChange }) {
 }
 
 // ============================================================
+// IMAGE UPLOAD BUTTON
+// ============================================================
+function ImageUpload({ label, value, onChange, onClear }) {
+  const ref = useRef();
+  const handleFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const b64 = await fileToBase64(file);
+      onChange(b64);
+    } catch (err) {
+      alert(err.message);
+    }
+    e.target.value = "";
+  };
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <label style={S.label}>{label}</label>
+      {value ? (
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          <img src={value} alt={label} style={{ maxWidth:80, maxHeight:80, borderRadius:4, border:"1px solid #E5E7EB", objectFit:"contain" }} />
+          <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+            <button onClick={() => ref.current?.click()}
+              style={{ fontSize:12, color:"#2563EB", background:"none", border:"none", cursor:"pointer", textDecoration:"underline", padding:0 }}>
+              変更
+            </button>
+            <button onClick={onClear}
+              style={{ fontSize:12, color:"#DC2626", background:"none", border:"none", cursor:"pointer", textDecoration:"underline", padding:0 }}>
+              削除
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={() => ref.current?.click()}
+          style={{ width:"100%", padding:"12px", border:"2px dashed #D1D5DB", borderRadius:8, background:"#FAFAFA", cursor:"pointer", fontSize:13, color:"#6B7280" }}>
+          📷 画像をアップロード（2MB以下）
+        </button>
+      )}
+      <input ref={ref} type="file" accept="image/*" style={{ display:"none" }} onChange={handleFile} />
+    </div>
+  );
+}
+
+// ============================================================
 // SETTINGS SCREEN
 // ============================================================
 function SettingsScreen({ settings, onSave, onExport, onImportFile, onWipe, onChangePassword }) {
@@ -394,6 +453,22 @@ function SettingsScreen({ settings, onSave, onExport, onImportFile, onWipe, onCh
         <Field label="住所"><Input value={form.address || ""} onChange={e => set("address", e.target.value)} placeholder="東京都〇〇区〇〇1-2-3" /></Field>
         <Field label="電話番号"><Input value={form.tel || ""} onChange={e => set("tel", e.target.value)} placeholder="03-0000-0000" /></Field>
         <Field label="メールアドレス"><Input value={form.email || ""} onChange={e => set("email", e.target.value)} placeholder="info@example.com" /></Field>
+      </div>
+
+      <div style={S.card}>
+        <h3 style={S.sectionTitle}>会社ロゴ・印影</h3>
+        <ImageUpload
+          label="会社ロゴ（ヘッダーに表示）"
+          value={form.logoImage || ""}
+          onChange={v => set("logoImage", v)}
+          onClear={() => set("logoImage", "")}
+        />
+        <ImageUpload
+          label="印影（発行者名横に表示）"
+          value={form.sealImage || ""}
+          onChange={v => set("sealImage", v)}
+          onClear={() => set("sealImage", "")}
+        />
       </div>
 
       <div style={S.card}>
@@ -524,16 +599,18 @@ function ItemRow({ item, onChange, onRemove }) {
 // ============================================================
 const MAX_ITEMS = 50;
 
-function InvoiceForm({ settings, invoices, onSave, editInvoice, onCancel }) {
+function InvoiceForm({ settings, invoices, onSave, onAutoSave, editInvoice, onCancel }) {
   const nextNum = (settings.invoiceStartNum || 1) + invoices.filter(i => i.status !== "cancelled").length;
   const defaultNum = `${settings.invoicePrefix || "INV"}-${String(nextNum).padStart(3, "0")}`;
 
   const [form, setForm] = useState(editInvoice || {
     id: genId(), docType: "invoice", invoiceNo: defaultNum, issueDate: today(), dueDate: nextMonth(),
     clientName: "", clientAddress: "", clientDept: "", subject: "", note: "",
-    items: [defaultItem()], status: "draft",
+    items: [defaultItem()], status: "draft", showWithholding: false,
   });
   const [formError, setFormError] = useState("");
+  const autoSaveTimer = useRef(null);
+  const isFirstRender = useRef(true);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const setItem = (idx, k, v) => { const items = [...form.items]; items[idx] = { ...items[idx], [k]: v }; setForm(f => ({ ...f, items })); };
@@ -543,11 +620,24 @@ function InvoiceForm({ settings, invoices, onSave, editInvoice, onCancel }) {
   };
   const removeItem = (idx) => { const items = form.items.filter((_, i) => i !== idx); setForm(f => ({ ...f, items: items.length ? items : [defaultItem()] })); };
   const { subtotal, taxGroups, grandTotal } = calcTotals(form.items);
+  const withholding = calcWithholding(subtotal);
+  const isIndividual = (settings.entityType || "corporate") === "individual";
   const [preview, setPreview] = useState(false);
+
+  // Auto-save: debounce 3 seconds after any form change
+  useEffect(() => {
+    if (isFirstRender.current) { isFirstRender.current = false; return; }
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = setTimeout(() => {
+      if (onAutoSave && form.clientName) {
+        onAutoSave({ ...form, status: form.status || "draft" });
+      }
+    }, 3000);
+    return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
+  }, [form]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSave = (status) => {
     setFormError("");
-    if (!sanitize(form.invoiceNo, 50)) { setFormError("書類番号を入力してください"); return; }
     if (!sanitize(form.clientName, 200)) { setFormError("宛先を入力してください"); return; }
     if (!sanitize(form.subject, 200)) { setFormError("件名を入力してください"); return; }
     if (form.issueDate && !isValidDate(form.issueDate)) { setFormError("発行日の形式が正しくありません"); return; }
@@ -585,7 +675,9 @@ function InvoiceForm({ settings, invoices, onSave, editInvoice, onCancel }) {
         return (
           <div style={S.card}>
             <h3 style={S.sectionTitle}>基本情報</h3>
-            <Field label={dt.noLabel} required><Input value={form.invoiceNo} onChange={e => set("invoiceNo", e.target.value)} /></Field>
+            <Field label={`${dt.noLabel}（任意）`}>
+              <Input value={form.invoiceNo} onChange={e => set("invoiceNo", e.target.value)} autoComplete="off" />
+            </Field>
             <div style={{ display: "grid", gridTemplateColumns: dt.showDate2 ? "1fr 1fr" : "1fr", gap: 12 }}>
               <Field label={dt.dateLabel}><Input type="date" value={form.issueDate} onChange={e => set("issueDate", e.target.value)} /></Field>
               {dt.showDate2 && <Field label={dt.date2Label}><Input type="date" value={form.dueDate} onChange={e => set("dueDate", e.target.value)} /></Field>}
@@ -625,7 +717,38 @@ function InvoiceForm({ settings, invoices, onSave, editInvoice, onCancel }) {
           <span style={{ fontSize:"13px", fontWeight:800, color:"#fff" }}>合計金額</span>
           <span style={{ fontSize:"13px", fontWeight:800, color:"#fff" }}>{formatYen(grandTotal)}</span>
         </div>
+        {isIndividual && form.showWithholding && (
+          <>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 16px", borderBottom:"1px solid #F3F4F6", background:"#FEF3C7" }}>
+              <span style={{ fontSize:"13px", color:"#92400E" }}>源泉徴収税</span>
+              <span style={{ fontSize:"13px", color:"#92400E" }}>-{formatYen(withholding)}</span>
+            </div>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 16px", background:"#1E3A5F" }}>
+              <span style={{ fontSize:"13px", fontWeight:800, color:"#fff" }}>差引支払額</span>
+              <span style={{ fontSize:"13px", fontWeight:800, color:"#fff" }}>{formatYen(grandTotal - withholding)}</span>
+            </div>
+          </>
+        )}
       </div>
+
+      {isIndividual && (
+        <div style={S.card}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <span style={{ fontSize:13, color:"#374151", fontWeight:600 }}>源泉徴収税を表示</span>
+            <Toggle
+              options={[{ value: "yes", label: "あり" }, { value: "no", label: "なし" }]}
+              value={form.showWithholding ? "yes" : "no"}
+              onChange={v => set("showWithholding", v === "yes")}
+            />
+          </div>
+          {form.showWithholding && (
+            <p style={{ fontSize:11, color:"#9CA3AF", marginTop:8, lineHeight:1.6 }}>
+              源泉徴収税額: {formatYen(withholding)}（税抜金額 {formatYen(subtotal)} に対して計算）<br />
+              ※100万円以下: 10.21%　100万円超: 20.42%
+            </p>
+          )}
+        </div>
+      )}
 
       <div style={S.card}>
         <h3 style={S.sectionTitle}>備考</h3>
@@ -638,6 +761,9 @@ function InvoiceForm({ settings, invoices, onSave, editInvoice, onCancel }) {
         <Btn variant="secondary" onClick={() => handleSave("draft")} style={{ flex: 1 }}>下書き保存</Btn>
         <Btn onClick={() => setPreview(true)} style={{ flex: 1 }}>プレビュー・PDF</Btn>
       </div>
+      <p style={{ fontSize:11, color:"#9CA3AF", textAlign:"center", marginTop:8 }}>
+        💾 宛先入力後、3秒間操作がないと自動保存されます
+      </p>
     </div>
   );
 }
@@ -647,23 +773,47 @@ function InvoiceForm({ settings, invoices, onSave, editInvoice, onCancel }) {
 // ============================================================
 function InvoicePreview({ invoice, settings, onBack, onSave }) {
   const { subtotal, taxGroups, grandTotal } = calcTotals(invoice.items);
+  const withholding = calcWithholding(subtotal);
   const printRef = useRef();
+  const outerRef = useRef();
+  const [scale, setScale] = useState(0.5);
   const isCorp = (settings.entityType || "corporate") === "corporate";
+  const isIndividual = !isCorp;
   const issuerName = isCorp ? settings.companyName : (settings.companyName || settings.repName || "");
   const issuerPerson = isCorp ? settings.ceoName : settings.repName;
+
+  // Dynamic scaling for mobile
+  useEffect(() => {
+    const updateScale = () => {
+      if (outerRef.current) {
+        const w = outerRef.current.offsetWidth - 24;
+        setScale(Math.min(w / 794, 1));
+      }
+    };
+    updateScale();
+    window.addEventListener("resize", updateScale);
+    return () => window.removeEventListener("resize", updateScale);
+  }, []);
 
   const handlePrint = () => {
     const inv = invoice;
     const s = settings;
     const isCorp2 = (s.entityType || "corporate") === "corporate";
+    const isIndiv2 = !isCorp2;
     const iName = isCorp2 ? s.companyName : (s.companyName || s.repName || "");
     const iPerson = isCorp2 ? s.ceoName : s.repName;
     const { subtotal: sub, taxGroups: tg, grandTotal: gt } = calcTotals(inv.items);
+    const wh = calcWithholding(sub);
     const dt = getDocType(inv.docType);
 
     const taxRows = Object.entries(tg).map(([rate, amt]) =>
       `<tr><td style="padding:5px 10px;border-bottom:1px solid #eee;font-size:10px;">消費税（${Math.round(parseFloat(rate)*100)}%）</td><td style="padding:5px 10px;text-align:right;border-bottom:1px solid #eee;font-size:10px;">${formatYen(amt)}</td></tr>`
     ).join("");
+
+    const withholdingRows = (isIndiv2 && inv.showWithholding) ? `
+      <tr><td style="padding:5px 10px;border-bottom:1px solid #eee;font-size:10px;background:#FEF3C7;color:#92400E;">源泉徴収税</td><td style="padding:5px 10px;text-align:right;border-bottom:1px solid #eee;font-size:10px;background:#FEF3C7;color:#92400E;">-${formatYen(wh)}</td></tr>
+      <tr style="background:#1E3A5F;color:#fff;"><td style="padding:7px 10px;font-size:11px;font-weight:800;">差引支払額</td><td style="padding:7px 10px;text-align:right;font-size:11px;font-weight:800;">${formatYen(gt - wh)}</td></tr>
+    ` : "";
 
     const itemRows = inv.items.map(item => {
       const c = calcItem(item);
@@ -678,6 +828,9 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
         <td style="padding:6px 8px;border:1px solid #ddd;text-align:right;font-size:12px;">${formatYen(c.total)}</td>
       </tr>`;
     }).join("");
+
+    const logoHtml = s.logoImage ? `<img src="${s.logoImage}" style="max-height:40px;max-width:120px;object-fit:contain;" />` : "";
+    const sealHtml = s.sealImage ? `<img src="${s.sealImage}" style="width:60px;height:60px;object-fit:contain;opacity:0.85;margin-top:4px;" />` : "";
 
     const html = `<!DOCTYPE html>
 <html lang="ja"><head>
@@ -694,9 +847,12 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
 </head><body><div class="page">
 
   <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #2C3E50;padding-bottom:16px;margin-bottom:20px;">
-    <h1 style="font-size:22px;font-weight:900;letter-spacing:8px;color:#1a1a1a;">${esc(dt.label)}</h1>
+    <div style="display:flex;align-items:center;gap:12px;">
+      ${logoHtml}
+      <h1 style="font-size:22px;font-weight:900;letter-spacing:8px;color:#1a1a1a;">${esc(dt.label)}</h1>
+    </div>
     <div style="text-align:right;font-size:10px;line-height:2;color:#444;">
-      <div>${esc(dt.noLabel)}：<strong>${esc(inv.invoiceNo)}</strong></div>
+      ${inv.invoiceNo ? `<div>${esc(dt.noLabel)}：<strong>${esc(inv.invoiceNo)}</strong></div>` : ""}
       <div>${esc(dt.dateLabel)}：${esc(inv.issueDate)}</div>
       ${dt.showDate2 ? `<div>${esc(dt.date2Label)}：${esc(inv.dueDate)}</div>` : ""}
     </div>
@@ -717,6 +873,7 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
       ${s.tel ? `<div style="font-size:10px;color:#555;line-height:1.9;">TEL：${esc(s.tel)}</div>` : ""}
       ${s.email ? `<div style="font-size:10px;color:#555;line-height:1.9;">${esc(s.email)}</div>` : ""}
       ${s.invoiceRegNumber ? `<div style="font-size:10px;color:#555;line-height:1.9;margin-top:4px;">登録番号：${esc(s.invoiceRegNumber)}</div>` : ""}
+      ${sealHtml ? `<div style="display:inline-block;margin-top:6px;">${sealHtml}</div>` : ""}
     </div>
   </div>
 
@@ -748,6 +905,7 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
         <tr><td style="padding:5px 10px;border-bottom:1px solid #eee;font-size:10px;">小計（税抜）</td><td style="padding:5px 10px;text-align:right;border-bottom:1px solid #eee;font-size:10px;">${formatYen(sub)}</td></tr>
         ${taxRows}
         <tr style="background:#2C3E50;color:#fff;"><td style="padding:7px 10px;font-size:11px;font-weight:800;">合計金額</td><td style="padding:7px 10px;text-align:right;font-size:11px;font-weight:800;">${formatYen(gt)}</td></tr>
+        ${withholdingRows}
       </table>
     </div>
   </div>
@@ -768,7 +926,7 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
     container.style.top = "0";
     document.body.appendChild(container);
 
-    const safeFilename = sanitizeFilename(`${dt.label}_${inv.invoiceNo}.pdf`);
+    const safeFilename = sanitizeFilename(`${dt.label}_${inv.invoiceNo || "no-number"}.pdf`);
     const opt = {
       margin: 0,
       filename: safeFilename,
@@ -789,10 +947,13 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
     <div ref={printRef} style={A4.page}>
       {/* Header */}
       <div className="header" style={A4.header}>
-        <h1 className="title" style={A4.title}>{getDocType(invoice.docType).label.split("").join("　")}</h1>
+        <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+          {settings.logoImage && <img src={settings.logoImage} alt="logo" style={{ maxHeight:40, maxWidth:120, objectFit:"contain" }} />}
+          <h1 className="title" style={A4.title}>{getDocType(invoice.docType).label.split("").join("　")}</h1>
+        </div>
         <div className="meta-right" style={A4.metaRight}>
           {(() => { const dt = getDocType(invoice.docType); return (<>
-            <div>{dt.noLabel}：<strong>{invoice.invoiceNo}</strong></div>
+            {invoice.invoiceNo && <div>{dt.noLabel}：<strong>{invoice.invoiceNo}</strong></div>}
             <div>{dt.dateLabel}：{invoice.issueDate}</div>
             {dt.showDate2 && <div>{dt.date2Label}：{invoice.dueDate}</div>}
           </>); })()}
@@ -815,6 +976,11 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
           {settings.tel && <div style={A4.issuerSub}>TEL：{settings.tel}</div>}
           {settings.email && <div style={A4.issuerSub}>{settings.email}</div>}
           {settings.invoiceRegNumber && <div style={{ ...A4.issuerSub, marginTop: 6 }}>登録番号：{settings.invoiceRegNumber}</div>}
+          {settings.sealImage && (
+            <div style={{ display:"inline-block", marginTop:6 }}>
+              <img src={settings.sealImage} alt="seal" style={{ width:60, height:60, objectFit:"contain", opacity:0.85 }} />
+            </div>
+          )}
         </div>
       </div>
 
@@ -874,6 +1040,16 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
             </div>
           ))}
           <div className="calc-total" style={A4.calcTotal}><span>合計金額</span><span>{formatYen(grandTotal)}</span></div>
+          {isIndividual && invoice.showWithholding && (
+            <>
+              <div style={{ ...A4.calcRow, background:"#FEF3C7", color:"#92400E" }}>
+                <span>源泉徴収税</span><span>-{formatYen(withholding)}</span>
+              </div>
+              <div style={{ ...A4.calcTotal, background:"#1E3A5F" }}>
+                <span>差引支払額</span><span>{formatYen(grandTotal - withholding)}</span>
+              </div>
+            </>
+          )}
         </div>
       </div>
       {/* Bank info below totals */}
@@ -896,11 +1072,19 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
         <Btn onClick={handlePrint} style={{ fontSize: 13, padding: "8px 14px" }}>📄 PDFダウンロード</Btn>
       </div>
 
-      {/* Scaled A4 preview that shows the full page */}
-      <div style={S.previewOuter}>
-        <div style={S.previewScaler}>
+      {/* Scaled A4 preview that shows the full page, responsive */}
+      <div ref={outerRef} style={S.previewOuter}>
+        <div style={{
+          transformOrigin: "top left",
+          transform: `scale(${scale})`,
+          width: "794px",
+          background: "#fff",
+          boxShadow: "0 2px 12px rgba(0,0,0,0.15)",
+        }}>
           {A4Content}
         </div>
+        {/* Spacer to reserve correct height after CSS transform */}
+        <div style={{ height: 1123 * scale, pointerEvents: "none" }} />
       </div>
     </div>
   );
@@ -1072,6 +1256,17 @@ export default function App() {
     setTab("archive");
   };
 
+  // Auto-save: silently persist without navigating away
+  const autoSaveInvoice = async (inv) => {
+    const updated = invoices.find(i => i.id === inv.id)
+      ? invoices.map(i => i.id === inv.id ? inv : i)
+      : [...invoices, inv];
+    if (!sessionKey || !sessionSalt) return;
+    // Update invoices state so it stays in sync, but don't change tab
+    setInvoices(updated);
+    await saveEncrypted(sessionKey, sessionSalt, { settings, invoices: updated });
+  };
+
   const deleteInvoice = async (id) => {
     if (!window.confirm("この請求書を削除しますか？")) return;
     await persist(settings, invoices.filter(i => i.id !== id));
@@ -1179,7 +1374,15 @@ export default function App() {
           </div>
         )}
         {tab === "new" && (
-          <InvoiceForm settings={settings} invoices={invoices} onSave={saveInvoice} editInvoice={editInvoice} onCancel={() => { setEditInvoice(null); setTab("home"); }} />
+          <InvoiceForm
+            key={editInvoice?.id || "new"}
+            settings={settings}
+            invoices={invoices}
+            onSave={saveInvoice}
+            onAutoSave={autoSaveInvoice}
+            editInvoice={editInvoice}
+            onCancel={() => { setEditInvoice(null); setTab("home"); }}
+          />
         )}
         {tab === "archive" && (
           <ArchiveScreen invoices={invoices} settings={settings} onEdit={(inv) => { setEditInvoice(inv); setTab("new"); }} onDelete={deleteInvoice} onNew={() => { setEditInvoice(null); setTab("new"); }} />
@@ -1265,14 +1468,13 @@ const S = {
   backBtn: { background: "none", border: "none", color: "#2563EB", fontSize: 14, cursor: "pointer", padding: "4px 0" },
   empty: { textAlign: "center", padding: "60px 20px", color: "#9CA3AF" },
   toast: { position: "fixed", top: 20, left: "50%", transform: "translateX(-50%)", background: "#2C3E50", color: "#fff", padding: "10px 20px", borderRadius: 20, fontSize: 13, fontWeight: 600, zIndex: 999, whiteSpace: "nowrap", boxShadow: "0 4px 12px rgba(0,0,0,0.2)" },
-  // Preview: scale A4 (794px wide) down to fit within 448px container
-  previewOuter: { width: "100%", background: "#e5e7eb", borderRadius: 8, padding: 12, overflowX: "hidden" },
-  previewScaler: { transformOrigin: "top left", transform: "scale(0.56)", width: "794px", background: "#fff", boxShadow: "0 2px 12px rgba(0,0,0,0.15)" },
+  // Preview: responsive scaling
+  previewOuter: { width: "100%", background: "#e5e7eb", borderRadius: 8, padding: 12, overflow: "hidden", position: "relative" },
 };
 
-// A4 print/preview styles (px-based for screen, mm-based handled by @page in print)
+// A4 print/preview styles
 const A4 = {
-  page: { width: "794px", minHeight: "1123px", padding: "72px 64px", background: "#fff", boxSizing: "border-box", fontFamily: "'Hiragino Kaku Gothic ProN','Meiryo',sans-serif", fontSize: "14px", color: "#1a1a1a" },
+  page: { width: "794px", padding: "72px 64px", background: "#fff", boxSizing: "border-box", fontFamily: "'Hiragino Kaku Gothic ProN','Meiryo',sans-serif", fontSize: "14px", color: "#1a1a1a" },
   header: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", borderBottom: "3px solid #2C3E50", paddingBottom: 20, marginBottom: 24 },
   title: { fontSize: 28, fontWeight: 900, color: "#1a1a1a", letterSpacing: 8 },
   metaRight: { textAlign: "right", fontSize: 12, lineHeight: 2, color: "#444" },
