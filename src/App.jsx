@@ -57,6 +57,30 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
   reader.readAsDataURL(file);
 });
 
+// Remove white/light background from seal images using Canvas
+const removeBackground = (dataUrl, threshold = 240) => new Promise((resolve) => {
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, 0, 0);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i], g = data[i+1], b = data[i+2];
+      if (r > threshold && g > threshold && b > threshold) {
+        data[i+3] = 0; // make transparent
+      }
+    }
+    ctx.putImageData(imageData, 0, 0);
+    resolve(canvas.toDataURL("image/png"));
+  };
+  img.onerror = () => resolve(dataUrl); // fallback to original
+  img.src = dataUrl;
+});
+
 const genId = () => Math.random().toString(36).slice(2, 9);
 const esc = (str) => String(str || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
 const today = () => new Date().toISOString().split("T")[0];
@@ -252,9 +276,10 @@ function LockScreen({ isNew, onUnlock, onWipe }) {
     <div style={{ minHeight:"100vh", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", background:"#F8F7F4", padding:20, fontFamily:"'Hiragino Kaku Gothic ProN','Meiryo',sans-serif" }}>
       <div style={{ background:"#fff", borderRadius:16, padding:32, width:"100%", maxWidth:360, boxShadow:"0 4px 24px rgba(0,0,0,0.1)" }}>
         <div style={{ textAlign:"center", marginBottom:24 }}>
-          <div style={{ fontSize:48, marginBottom:8 }}>🔒</div>
-          <h1 style={{ fontSize:20, fontWeight:800, color:"#2C3E50", margin:0 }}>請求書アプリ</h1>
-          <p style={{ fontSize:13, color:"#6B7280", marginTop:8, lineHeight:1.6 }}>
+          <div style={{ fontSize:48, marginBottom:8 }}>📄</div>
+          <h1 style={{ fontSize:18, fontWeight:800, color:"#2C3E50", margin:0, lineHeight:1.4 }}>請求書作成アプリ</h1>
+          <p style={{ fontSize:12, color:"#6B7280", marginTop:4, lineHeight:1.5 }}>誰でも簡単にPDFでダウンロード</p>
+          <p style={{ fontSize:13, color:"#6B7280", marginTop:12, lineHeight:1.6 }}>
             {isNew ? "データ保護のためパスワードを設定してください" : "パスワードを入力してください"}
           </p>
         </div>
@@ -337,6 +362,62 @@ function ChangePasswordModal({ settings, invoices, onChanged, onClose }) {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// ONBOARDING SCREEN (shown once after first password setup)
+// ============================================================
+function OnboardingScreen({ onComplete }) {
+  const [step, setStep] = useState(0);
+  const steps = [
+    { icon: "⚙️", title: "ステップ 1：会社情報を入力", desc: "設定画面で「法人」または「個人事業主」を選択し、会社名・住所・振込先などを入力します。印影やロゴもアップロードできます。" },
+    { icon: "📄", title: "ステップ 2：請求書を作成", desc: "「新規作成」から宛先・件名・明細を入力します。見積書・納品書・受領書も作成できます。入力内容は自動保存されます。" },
+    { icon: "👁️", title: "ステップ 3：プレビュー・PDF", desc: "「プレビュー・PDF」で仕上がりを確認し、PDFをダウンロードできます。源泉徴収の自動計算にも対応しています。" },
+    { icon: "🗂️", title: "ステップ 4：一覧で管理", desc: "作成した書類は「一覧」タブで検索・編集・削除できます。バックアップのエクスポート・インポートも可能です。" },
+  ];
+  const s = steps[step];
+  return (
+    <div style={{ minHeight:"100vh", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", background:"#F8F7F4", padding:20, fontFamily:"'Hiragino Kaku Gothic ProN','Meiryo',sans-serif" }}>
+      <div style={{ background:"#fff", borderRadius:16, padding:32, width:"100%", maxWidth:380, boxShadow:"0 4px 24px rgba(0,0,0,0.1)" }}>
+        <div style={{ textAlign:"center", marginBottom:20 }}>
+          <div style={{ fontSize:48, marginBottom:12 }}>{s.icon}</div>
+          <h2 style={{ fontSize:17, fontWeight:800, color:"#2C3E50", margin:0, lineHeight:1.5 }}>{s.title}</h2>
+          <p style={{ fontSize:13, color:"#4B5563", marginTop:12, lineHeight:1.8, textAlign:"left" }}>{s.desc}</p>
+        </div>
+        {/* Progress dots */}
+        <div style={{ display:"flex", justifyContent:"center", gap:8, marginBottom:20 }}>
+          {steps.map((_, i) => (
+            <div key={i} style={{ width:8, height:8, borderRadius:"50%", background: i === step ? "#2C3E50" : "#D1D5DB", transition:"background 0.2s" }} />
+          ))}
+        </div>
+        <div style={{ display:"flex", gap:10 }}>
+          {step > 0 && (
+            <button onClick={() => setStep(step - 1)}
+              style={{ flex:1, background:"#F3F4F6", color:"#374151", border:"1.5px solid #D1D5DB", borderRadius:10, padding:"12px 0", fontSize:14, fontWeight:600, cursor:"pointer" }}>
+              戻る
+            </button>
+          )}
+          {step < steps.length - 1 ? (
+            <button onClick={() => setStep(step + 1)}
+              style={{ flex:1, background:"#2C3E50", color:"#fff", border:"none", borderRadius:10, padding:"12px 0", fontSize:14, fontWeight:700, cursor:"pointer" }}>
+              次へ
+            </button>
+          ) : (
+            <button onClick={onComplete}
+              style={{ flex:1, background:"#2C3E50", color:"#fff", border:"none", borderRadius:10, padding:"12px 0", fontSize:14, fontWeight:700, cursor:"pointer" }}>
+              はじめる
+            </button>
+          )}
+        </div>
+        {step < steps.length - 1 && (
+          <button onClick={onComplete}
+            style={{ width:"100%", background:"none", border:"none", color:"#9CA3AF", fontSize:12, marginTop:12, cursor:"pointer", textDecoration:"underline" }}>
+            スキップ
+          </button>
+        )}
       </div>
     </div>
   );
@@ -464,9 +545,12 @@ function SettingsScreen({ settings, onSave, onExport, onImportFile, onWipe, onCh
           onClear={() => set("logoImage", "")}
         />
         <ImageUpload
-          label="印影（発行者名横に表示）"
+          label="印影（会社名の右に表示・背景自動透過）"
           value={form.sealImage || ""}
-          onChange={v => set("sealImage", v)}
+          onChange={async (v) => {
+            try { const transparent = await removeBackground(v); set("sealImage", transparent); }
+            catch { set("sealImage", v); }
+          }}
           onClear={() => set("sealImage", "")}
         />
       </div>
@@ -604,7 +688,7 @@ function InvoiceForm({ settings, invoices, onSave, onAutoSave, editInvoice, onCa
   const defaultNum = `${settings.invoicePrefix || "INV"}-${String(nextNum).padStart(3, "0")}`;
 
   const [form, setForm] = useState(editInvoice || {
-    id: genId(), docType: "invoice", invoiceNo: defaultNum, issueDate: today(), dueDate: nextMonth(),
+    id: genId(), docType: "invoice", invoiceNo: "", issueDate: today(), dueDate: nextMonth(),
     clientName: "", clientAddress: "", clientDept: "", subject: "", note: "",
     items: [defaultItem()], status: "draft", showWithholding: false,
   });
@@ -676,7 +760,7 @@ function InvoiceForm({ settings, invoices, onSave, onAutoSave, editInvoice, onCa
           <div style={S.card}>
             <h3 style={S.sectionTitle}>基本情報</h3>
             <Field label={`${dt.noLabel}（任意）`}>
-              <Input value={form.invoiceNo} onChange={e => set("invoiceNo", e.target.value)} autoComplete="off" />
+              <Input value={form.invoiceNo} onChange={e => set("invoiceNo", e.target.value)} autoComplete="off" placeholder={`例: ${defaultNum}`} />
             </Field>
             <div style={{ display: "grid", gridTemplateColumns: dt.showDate2 ? "1fr 1fr" : "1fr", gap: 12 }}>
               <Field label={dt.dateLabel}><Input type="date" value={form.issueDate} onChange={e => set("issueDate", e.target.value)} /></Field>
@@ -782,11 +866,16 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
   const issuerName = isCorp ? settings.companyName : (settings.companyName || settings.repName || "");
   const issuerPerson = isCorp ? settings.ceoName : settings.repName;
 
+  // Scroll to top when preview opens
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
+
   // Dynamic scaling for mobile
   useEffect(() => {
     const updateScale = () => {
       if (outerRef.current) {
-        const w = outerRef.current.offsetWidth - 24;
+        const w = outerRef.current.offsetWidth - 16;
         setScale(Math.min(w / 794, 1));
       }
     };
@@ -830,7 +919,7 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
     }).join("");
 
     const logoHtml = s.logoImage ? `<img src="${s.logoImage}" style="max-height:40px;max-width:120px;object-fit:contain;" />` : "";
-    const sealHtml = s.sealImage ? `<img src="${s.sealImage}" style="width:60px;height:60px;object-fit:contain;opacity:0.85;margin-top:4px;" />` : "";
+    const sealHtml = s.sealImage ? `<img src="${s.sealImage}" style="width:56px;height:56px;object-fit:contain;" />` : "";
 
     const html = `<!DOCTYPE html>
 <html lang="ja"><head>
@@ -866,14 +955,16 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
       <div style="margin-top:8px;font-size:12px;font-weight:700;">件名：${esc(inv.subject)}</div>
     </div>
     <div style="flex:1;text-align:right;margin-top:24px;">
-      <div style="font-size:14px;font-weight:800;margin-bottom:4px;">${esc(iName)}</div>
+      <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;">
+        <div style="font-size:14px;font-weight:800;">${esc(iName)}</div>
+        ${sealHtml}
+      </div>
       ${iPerson ? `<div style="font-size:10px;color:#555;line-height:1.9;">${esc(iPerson)}</div>` : ""}
       ${s.zip ? `<div style="font-size:10px;color:#555;line-height:1.9;">〒${esc(s.zip)}</div>` : ""}
       ${s.address ? `<div style="font-size:10px;color:#555;line-height:1.9;">${esc(s.address)}</div>` : ""}
       ${s.tel ? `<div style="font-size:10px;color:#555;line-height:1.9;">TEL：${esc(s.tel)}</div>` : ""}
       ${s.email ? `<div style="font-size:10px;color:#555;line-height:1.9;">${esc(s.email)}</div>` : ""}
       ${s.invoiceRegNumber ? `<div style="font-size:10px;color:#555;line-height:1.9;margin-top:4px;">登録番号：${esc(s.invoiceRegNumber)}</div>` : ""}
-      ${sealHtml ? `<div style="display:inline-block;margin-top:6px;">${sealHtml}</div>` : ""}
     </div>
   </div>
 
@@ -969,18 +1060,18 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
           <div className="subject-line" style={A4.subject}>件名：{invoice.subject}</div>
         </div>
         <div className="issuer-box" style={A4.issuerBox}>
-          <div className="issuer-name" style={A4.issuerName}>{issuerName}</div>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:8 }}>
+            <div className="issuer-name" style={A4.issuerName}>{issuerName}</div>
+            {settings.sealImage && (
+              <img src={settings.sealImage} alt="seal" style={{ width:56, height:56, objectFit:"contain" }} />
+            )}
+          </div>
           {issuerPerson && <div className="issuer-sub" style={A4.issuerSub}>{issuerPerson}</div>}
           {settings.zip && <div style={A4.issuerSub}>〒{settings.zip}</div>}
           {settings.address && <div style={A4.issuerSub}>{settings.address}</div>}
           {settings.tel && <div style={A4.issuerSub}>TEL：{settings.tel}</div>}
           {settings.email && <div style={A4.issuerSub}>{settings.email}</div>}
           {settings.invoiceRegNumber && <div style={{ ...A4.issuerSub, marginTop: 6 }}>登録番号：{settings.invoiceRegNumber}</div>}
-          {settings.sealImage && (
-            <div style={{ display:"inline-block", marginTop:6 }}>
-              <img src={settings.sealImage} alt="seal" style={{ width:60, height:60, objectFit:"contain", opacity:0.85 }} />
-            </div>
-          )}
         </div>
       </div>
 
@@ -1177,6 +1268,7 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [homeDetail, setHomeDetail] = useState(null);
   const [showChangePw, setShowChangePw] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const sessionTimerRef = useRef(null);
 
   // Auto-lock after 30 minutes of inactivity
@@ -1205,12 +1297,14 @@ export default function App() {
   }, [locked, sessionKey, resetTimer]);
 
   const handleUnlock = (key, salt, data) => {
+    const wasNew = isNewUser;
     setSessionKey(key);
     setSessionSalt(salt);
     if (data && data.settings) setSettings(data.settings);
     if (data && Array.isArray(data.invoices)) setInvoices(data.invoices);
     setLocked(false);
     setIsNewUser(false);
+    if (wasNew) setShowOnboarding(true);
   };
 
   const handleWipe = () => {
@@ -1308,6 +1402,10 @@ export default function App() {
 
   if (locked) {
     return <LockScreen isNew={isNewUser} onUnlock={handleUnlock} onWipe={handleWipe} />;
+  }
+
+  if (showOnboarding) {
+    return <OnboardingScreen onComplete={() => setShowOnboarding(false)} />;
   }
 
   const { grandTotal: totalRevenue } = calcTotals(invoices.flatMap(i => i.items));
@@ -1469,7 +1567,7 @@ const S = {
   empty: { textAlign: "center", padding: "60px 20px", color: "#9CA3AF" },
   toast: { position: "fixed", top: 20, left: "50%", transform: "translateX(-50%)", background: "#2C3E50", color: "#fff", padding: "10px 20px", borderRadius: 20, fontSize: 13, fontWeight: 600, zIndex: 999, whiteSpace: "nowrap", boxShadow: "0 4px 12px rgba(0,0,0,0.2)" },
   // Preview: responsive scaling
-  previewOuter: { width: "100%", background: "#e5e7eb", borderRadius: 8, padding: 12, overflow: "hidden", position: "relative" },
+  previewOuter: { width: "100%", background: "#e5e7eb", borderRadius: 8, padding: 8, overflow: "hidden", position: "relative" },
 };
 
 // A4 print/preview styles
