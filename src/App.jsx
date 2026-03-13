@@ -48,7 +48,7 @@ const calcWithholding = (subtotal) => {
 };
 
 // Image file to base64 data URL (SVG blocked, data URL validated)
-const SAFE_IMAGE_RE = /^data:image\/(png|jpeg|jpg|gif|webp);base64,[A-Za-z0-9+/=]+$/;
+const SAFE_IMAGE_PREFIX_RE = /^data:image\/(png|jpeg|jpg|gif|webp);base64,/;
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
   if (!file || !file.type.startsWith("image/")) { reject(new Error("画像ファイルを選択してください")); return; }
   if (file.type === "image/svg+xml" || file.name?.toLowerCase().endsWith(".svg")) { reject(new Error("SVGファイルはセキュリティ上アップロードできません")); return; }
@@ -56,7 +56,7 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
   const reader = new FileReader();
   reader.onload = () => {
     const result = reader.result;
-    if (!SAFE_IMAGE_RE.test(result)) { reject(new Error("不正な画像形式です")); return; }
+    if (!SAFE_IMAGE_PREFIX_RE.test(result)) { reject(new Error("不正な画像形式です")); return; }
     resolve(result);
   };
   reader.onerror = reject;
@@ -64,7 +64,7 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
 });
 
 // Validate data URL is a safe image (for use before innerHTML interpolation)
-const isSafeImageUrl = (url) => !url || SAFE_IMAGE_RE.test(url);
+const isSafeImageUrl = (url) => !url || SAFE_IMAGE_PREFIX_RE.test(url);
 
 // Remove white/light background from seal images using Canvas
 const MAX_CANVAS_PIXELS = 4000000; // 4MP limit to prevent decompression bombs
@@ -630,7 +630,7 @@ function SettingsScreen({ settings, onSave, onExport, onImportFile, onWipe, onCh
 
       <div style={S.card}>
         <h3 style={S.sectionTitle}>請求書設定</h3>
-        <Field label="請求書番号プレフィックス"><Input value={form.invoicePrefix || "INV"} onChange={e => set("invoicePrefix", e.target.value)} placeholder="INV" /></Field>
+        <Field label="請求書番号"><Input value={form.invoicePrefix ?? ""} onChange={e => set("invoicePrefix", e.target.value)} placeholder="例: INV（空欄可）" /></Field>
         <Field label="開始番号"><Input type="number" value={form.invoiceStartNum || 1} onChange={e => set("invoiceStartNum", parseInt(e.target.value))} /></Field>
         <Field label="インボイス登録番号（空欄なら請求書に記載しない）">
           <Input value={form.invoiceRegNumber || ""} onChange={e => set("invoiceRegNumber", e.target.value)} placeholder="T1234567890123" />
@@ -745,7 +745,8 @@ const MAX_ITEMS = 50;
 
 function InvoiceForm({ settings, invoices, onSave, onAutoSave, editInvoice, onCancel }) {
   const nextNum = (settings.invoiceStartNum || 1) + invoices.filter(i => i.status !== "cancelled").length;
-  const defaultNum = `${settings.invoicePrefix || "INV"}-${String(nextNum).padStart(3, "0")}`;
+  const prefix = settings.invoicePrefix ?? "";
+  const defaultNum = prefix ? `${prefix}-${String(nextNum).padStart(3, "0")}` : String(nextNum).padStart(3, "0");
 
   const [form, setForm] = useState(editInvoice || {
     id: genId(), docType: "invoice", invoiceNo: "", issueDate: today(), dueDate: nextMonth(),
@@ -1073,7 +1074,7 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
 
     const container = document.createElement("div");
     container.innerHTML = html;
-    const pageEl = container.firstElementChild?.querySelector(".page") || container.firstElementChild;
+    const pageEl = container.querySelector(".page");
     container.style.position = "fixed";
     container.style.left = "-9999px";
     container.style.top = "0";
@@ -1314,7 +1315,7 @@ function ArchiveScreen({ invoices, settings, onEdit, onDelete, onNew }) {
 // APP ROOT
 // ============================================================
 const DEFAULT_SETTINGS = {
-  companyName: "", entityType: "corporate", invoicePrefix: "INV",
+  companyName: "", entityType: "corporate", invoicePrefix: "",
   invoiceStartNum: 1, defaultTaxRate: "0.10", roundingMode: "floor"
 };
 
