@@ -47,20 +47,35 @@ const calcWithholding = (subtotal) => {
   return Math.floor((subtotal - 1000000) * 0.2042 + 102100);
 };
 
-// Image file to base64 data URL
+// Image file to base64 data URL (SVG blocked, data URL validated)
+const SAFE_IMAGE_RE = /^data:image\/(png|jpeg|jpg|gif|webp);base64,[A-Za-z0-9+/=]+$/;
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
   if (!file || !file.type.startsWith("image/")) { reject(new Error("画像ファイルを選択してください")); return; }
+  if (file.type === "image/svg+xml" || file.name?.toLowerCase().endsWith(".svg")) { reject(new Error("SVGファイルはセキュリティ上アップロードできません")); return; }
   if (file.size > 2 * 1024 * 1024) { reject(new Error("ファイルサイズは2MB以下にしてください")); return; }
   const reader = new FileReader();
-  reader.onload = () => resolve(reader.result);
+  reader.onload = () => {
+    const result = reader.result;
+    if (!SAFE_IMAGE_RE.test(result)) { reject(new Error("不正な画像形式です")); return; }
+    resolve(result);
+  };
   reader.onerror = reject;
   reader.readAsDataURL(file);
 });
 
+// Validate data URL is a safe image (for use before innerHTML interpolation)
+const isSafeImageUrl = (url) => !url || SAFE_IMAGE_RE.test(url);
+
 // Remove white/light background from seal images using Canvas
+const MAX_CANVAS_PIXELS = 4000000; // 4MP limit to prevent decompression bombs
+const MAX_CANVAS_DIM = 2000;
 const removeBackground = (dataUrl, threshold = 240) => new Promise((resolve) => {
   const img = new Image();
   img.onload = () => {
+    if (img.width * img.height > MAX_CANVAS_PIXELS || img.width > MAX_CANVAS_DIM || img.height > MAX_CANVAS_DIM) {
+      resolve(dataUrl); // too large, skip processing
+      return;
+    }
     const canvas = document.createElement("canvas");
     canvas.width = img.width;
     canvas.height = img.height;
@@ -81,7 +96,7 @@ const removeBackground = (dataUrl, threshold = 240) => new Promise((resolve) => 
   img.src = dataUrl;
 });
 
-const genId = () => Math.random().toString(36).slice(2, 9);
+const genId = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), b => b.toString(36).padStart(2, "0")).join("").slice(0, 9);
 const esc = (str) => String(str || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
 const today = () => new Date().toISOString().split("T")[0];
 const nextMonth = () => {
@@ -109,16 +124,29 @@ const sanitizeFilename = (s) =>
 const safeParse = (s) => {
   try {
     const obj = JSON.parse(s);
-    if (obj !== null && typeof obj === "object") return JSON.parse(JSON.stringify(obj));
+    if (obj !== null && typeof obj === "object") return deepSanitizeObj(JSON.parse(JSON.stringify(obj)));
     return obj;
   } catch { return null; }
+};
+
+// Recursively strip dangerous keys (__proto__, constructor, prototype)
+const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+const deepSanitizeObj = (obj) => {
+  if (obj === null || typeof obj !== "object") return obj;
+  if (Array.isArray(obj)) return obj.map(deepSanitizeObj);
+  const clean = Object.create(null);
+  for (const key of Object.keys(obj)) {
+    if (DANGEROUS_KEYS.has(key)) continue;
+    clean[key] = deepSanitizeObj(obj[key]);
+  }
+  return clean;
 };
 
 // ============================================================
 // ENCRYPTED STORAGE (AES-256-GCM + PBKDF2)
 // ============================================================
 const STORAGE_KEY = "invoiceApp_v3";
-const PBKDF2_ITERATIONS = 100000;
+const PBKDF2_ITERATIONS = 600000;
 
 const bufToB64 = (buf) => {
   const bytes = new Uint8Array(buf instanceof ArrayBuffer ? buf : buf.buffer);
@@ -190,6 +218,13 @@ const saveEncrypted = async (key, salt, data) => {
 
 const wipeAllData = () => localStorage.removeItem(STORAGE_KEY);
 
+// Write mutex to prevent concurrent saveEncrypted calls
+let _saveLock = Promise.resolve();
+const serializedSave = async (key, salt, data) => {
+  _saveLock = _saveLock.then(() => saveEncrypted(key, salt, data)).catch(() => {});
+  return _saveLock;
+};
+
 // ============================================================
 // BACKUP / RESTORE
 // ============================================================
@@ -209,9 +244,33 @@ const validateImportData = (obj) => {
   if (!obj || typeof obj !== "object" || Array.isArray(obj)) return null;
   const settings = (obj.settings && typeof obj.settings === "object" && !Array.isArray(obj.settings))
     ? obj.settings : {};
+  // Validate each invoice has required fields with correct types
   const invoices = Array.isArray(obj.invoices)
-    ? obj.invoices.filter(i => i && typeof i === "object" && typeof i.id === "string")
+    ? obj.invoices.filter(i => {
+        if (!i || typeof i !== "object" || typeof i.id !== "string") return false;
+        // Validate items array if present
+        if (i.items && Array.isArray(i.items)) {
+          i.items = i.items.filter(item => item && typeof item === "object" && typeof item.id === "string")
+            .map(item => ({
+              id: sanitize(item.id, 20),
+              name: sanitize(item.name, 200),
+              qty: sanitizeNumber(item.qty, 0, 99999),
+              unitPrice: sanitizeNumber(item.unitPrice, 0, 999999999),
+              taxRate: String(item.taxRate || "0.10"),
+              taxMode: item.taxMode === "inclusive" ? "inclusive" : "exclusive",
+            }));
+        }
+        // Sanitize string fields
+        if (i.clientName) i.clientName = sanitize(i.clientName, 300);
+        if (i.subject) i.subject = sanitize(i.subject, 300);
+        if (i.invoiceNo) i.invoiceNo = sanitize(i.invoiceNo, 100);
+        if (i.note) i.note = sanitize(i.note, 2000);
+        return true;
+      })
     : [];
+  // Validate image URLs in settings
+  if (settings.logoImage && !isSafeImageUrl(settings.logoImage)) settings.logoImage = "";
+  if (settings.sealImage && !isSafeImageUrl(settings.sealImage)) settings.sealImage = "";
   return { settings, invoices };
 };
 
@@ -248,7 +307,7 @@ function LockScreen({ isNew, onUnlock, onWipe }) {
     if (loading || !pw) return;
     setError("");
     if (isNew) {
-      if (pw.length < 6) { setError("パスワードは6文字以上必要です"); return; }
+      if (pw.length < 8) { setError("パスワードは8文字以上必要です"); return; }
       if (pw !== pw2) { setError("パスワードが一致しません"); return; }
     }
     setLoading(true);
@@ -285,7 +344,7 @@ function LockScreen({ isNew, onUnlock, onWipe }) {
         </div>
         <form onSubmit={submit}>
           <input type="password" value={pw} onChange={e => setPw(e.target.value)}
-            placeholder={isNew ? "新しいパスワード（6文字以上）" : "パスワード"}
+            placeholder={isNew ? "新しいパスワード（8文字以上）" : "パスワード"}
             autoFocus autoComplete={isNew ? "new-password" : "current-password"}
             style={{ width:"100%", padding:"12px 14px", border:"1.5px solid #E5E7EB", borderRadius:8, fontSize:14, boxSizing:"border-box", outline:"none", marginBottom:10 }} />
           {isNew && (
@@ -334,7 +393,7 @@ function ChangePasswordModal({ settings, invoices, onChanged, onClose }) {
     try {
       const newSalt = bufToB64(crypto.getRandomValues(new Uint8Array(16)));
       const newKey = await deriveKey(newPw, newSalt);
-      await saveEncrypted(newKey, newSalt, { settings, invoices });
+      await serializedSave(newKey, newSalt, { settings, invoices });
       onChanged(newKey, newSalt);
     } catch { setError("エラーが発生しました"); setLoading(false); }
   };
@@ -345,7 +404,7 @@ function ChangePasswordModal({ settings, invoices, onChanged, onClose }) {
         <h3 style={{ fontSize:16, fontWeight:800, color:"#2C3E50", marginBottom:16 }}>パスワードを変更</h3>
         <form onSubmit={submit}>
           <input type="password" value={newPw} onChange={e => setNewPw(e.target.value)}
-            placeholder="新しいパスワード（6文字以上）" autoFocus autoComplete="new-password"
+            placeholder="新しいパスワード（8文字以上）" autoFocus autoComplete="new-password"
             style={{ width:"100%", padding:"10px 12px", border:"1.5px solid #E5E7EB", borderRadius:8, fontSize:14, boxSizing:"border-box", outline:"none", marginBottom:10 }} />
           <input type="password" value={newPw2} onChange={e => setNewPw2(e.target.value)}
             placeholder="パスワード（確認）" autoComplete="new-password"
@@ -499,7 +558,8 @@ function ImageUpload({ label, value, onChange, onClear }) {
 // ============================================================
 function SettingsScreen({ settings, onSave, onExport, onImportFile, onWipe, onChangePassword }) {
   const [form, setForm] = useState(settings);
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const MAX_FIELD = 200;
+  const set = (k, v) => setForm(f => ({ ...f, [k]: typeof v === "string" ? sanitize(v, MAX_FIELD) : v }));
   const isCorp = (form.entityType || "corporate") === "corporate";
   const importRef = useRef();
 
@@ -696,8 +756,8 @@ function InvoiceForm({ settings, invoices, onSave, onAutoSave, editInvoice, onCa
   const autoSaveTimer = useRef(null);
   const isFirstRender = useRef(true);
 
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
-  const setItem = (idx, k, v) => { const items = [...form.items]; items[idx] = { ...items[idx], [k]: v }; setForm(f => ({ ...f, items })); };
+  const set = (k, v) => setForm(f => ({ ...f, [k]: typeof v === "string" ? sanitize(v, 300) : v }));
+  const setItem = (idx, k, v) => { const items = [...form.items]; items[idx] = { ...items[idx], [k]: typeof v === "string" ? sanitize(v, 200) : v }; setForm(f => ({ ...f, items })); };
   const addItem = () => {
     if (form.items.length >= MAX_ITEMS) { setFormError(`明細は${MAX_ITEMS}件までです`); return; }
     setForm(f => ({ ...f, items: [...f.items, { ...defaultItem(), taxRate: settings.defaultTaxRate || "0.10" }] }));
@@ -721,6 +781,8 @@ function InvoiceForm({ settings, invoices, onSave, onAutoSave, editInvoice, onCa
   }, [form]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSave = (status) => {
+    // Clear auto-save timer to prevent race condition
+    if (autoSaveTimer.current) { clearTimeout(autoSaveTimer.current); autoSaveTimer.current = null; }
     setFormError("");
     if (!sanitize(form.clientName, 200)) { setFormError("宛先を入力してください"); return; }
     if (!sanitize(form.subject, 200)) { setFormError("件名を入力してください"); return; }
@@ -918,8 +980,8 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
       </tr>`;
     }).join("");
 
-    const logoHtml = s.logoImage ? `<img src="${s.logoImage}" style="max-height:40px;max-width:120px;object-fit:contain;" />` : "";
-    const sealHtml = s.sealImage ? `<img src="${s.sealImage}" style="width:56px;height:56px;object-fit:contain;" />` : "";
+    const logoHtml = (s.logoImage && isSafeImageUrl(s.logoImage)) ? `<img src="${s.logoImage}" style="max-height:40px;max-width:120px;object-fit:contain;" />` : "";
+    const sealHtml = (s.sealImage && isSafeImageUrl(s.sealImage)) ? `<img src="${s.sealImage}" style="width:56px;height:56px;object-fit:contain;" />` : "";
 
     const html = `<!DOCTYPE html>
 <html lang="ja"><head>
@@ -1011,7 +1073,7 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
 
     const container = document.createElement("div");
     container.innerHTML = html;
-    const pageEl = container.querySelector(".page");
+    const pageEl = container.firstElementChild?.querySelector(".page") || container.firstElementChild;
     container.style.position = "fixed";
     container.style.left = "-9999px";
     container.style.top = "0";
@@ -1329,7 +1391,7 @@ export default function App() {
     if (!sessionKey || !sessionSalt) return;
     setSettings(s);
     setInvoices(inv);
-    await saveEncrypted(sessionKey, sessionSalt, { settings: s, invoices: inv });
+    await serializedSave(sessionKey, sessionSalt, { settings: s, invoices: inv });
   };
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
@@ -1358,7 +1420,7 @@ export default function App() {
     if (!sessionKey || !sessionSalt) return;
     // Update invoices state so it stays in sync, but don't change tab
     setInvoices(updated);
-    await saveEncrypted(sessionKey, sessionSalt, { settings, invoices: updated });
+    await serializedSave(sessionKey, sessionSalt, { settings, invoices: updated });
   };
 
   const deleteInvoice = async (id) => {
@@ -1368,6 +1430,7 @@ export default function App() {
   };
 
   const handleExport = () => {
+    if (!window.confirm("バックアップファイルは暗号化されていません。\n銀行口座番号等の機密情報が含まれます。\n安全な場所に保管してください。\n\nエクスポートしますか？")) return;
     exportBackup({ settings, invoices });
     showToast("バックアップをエクスポートしました");
   };
