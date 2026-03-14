@@ -630,8 +630,8 @@ function SettingsScreen({ settings, onSave, onExport, onImportFile, onWipe, onCh
 
       <div style={S.card}>
         <h3 style={S.sectionTitle}>請求書設定</h3>
-        <Field label="請求書番号"><Input value={form.invoicePrefix ?? ""} onChange={e => set("invoicePrefix", e.target.value)} placeholder="例: INV（空欄可）" /></Field>
-        <Field label="開始番号"><Input type="number" value={form.invoiceStartNum || 1} onChange={e => set("invoiceStartNum", parseInt(e.target.value))} /></Field>
+        <Field label="請求書番号"><Input value={form.invoicePrefix ?? ""} onChange={e => set("invoicePrefix", e.target.value)} placeholder="例: INV, DOC, 2024-（空欄可）" /></Field>
+        <Field label="請求書番号開始番号"><Input type="number" value={form.invoiceStartNum || 1} onChange={e => set("invoiceStartNum", parseInt(e.target.value) || 1)} /></Field>
         <Field label="インボイス登録番号（空欄なら請求書に記載しない）">
           <Input value={form.invoiceRegNumber || ""} onChange={e => set("invoiceRegNumber", e.target.value)} placeholder="T1234567890123" />
         </Field>
@@ -1080,19 +1080,28 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
     container.style.top = "0";
     document.body.appendChild(container);
 
-    const safeFilename = sanitizeFilename(`${dt.label}_${inv.invoiceNo || "no-number"}.pdf`);
-    const opt = {
-      margin: 0,
-      filename: safeFilename,
-      image: { type: "jpeg", quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true, letterRendering: true },
-      jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-    };
+    // Wait for images to load before generating PDF
+    const images = Array.from(container.querySelectorAll("img"));
+    const imageLoads = images.map(img => new Promise(resolve => {
+      if (img.complete) resolve(); // already loaded
+      else { img.onload = () => resolve(); img.onerror = () => resolve(); }
+    }));
 
-    html2pdf().set(opt).from(pageEl || container).save().then(() => {
-      document.body.removeChild(container);
-    }).catch(() => {
-      document.body.removeChild(container);
+    Promise.all(imageLoads).then(() => {
+      const safeFilename = sanitizeFilename(`${dt.label}_${inv.invoiceNo || "no-number"}.pdf`);
+      const opt = {
+        margin: 0,
+        filename: safeFilename,
+        image: { type: "jpeg", quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, letterRendering: true, allowTaint: true },
+        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+      };
+
+      html2pdf().set(opt).from(pageEl || container).save().then(() => {
+        document.body.removeChild(container);
+      }).catch(() => {
+        document.body.removeChild(container);
+      });
     });
   };
 
