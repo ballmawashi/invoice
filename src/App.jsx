@@ -558,8 +558,8 @@ function ImageUpload({ label, value, onChange, onClear }) {
 // ============================================================
 function SettingsScreen({ settings, onSave, onExport, onImportFile, onWipe, onChangePassword }) {
   const [form, setForm] = useState(settings);
-  const MAX_FIELD = 200;
-  const set = (k, v) => setForm(f => ({ ...f, [k]: typeof v === "string" ? sanitize(v, MAX_FIELD) : v }));
+  const IMAGE_KEYS = new Set(["logoImage", "sealImage"]);
+  const set = (k, v) => setForm(f => ({ ...f, [k]: (typeof v === "string" && !IMAGE_KEYS.has(k)) ? sanitize(v, 200) : v }));
   const isCorp = (form.entityType || "corporate") === "corporate";
   const importRef = useRef();
 
