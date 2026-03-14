@@ -69,7 +69,7 @@ const isSafeImageUrl = (url) => !url || SAFE_IMAGE_PREFIX_RE.test(url);
 // Remove white/light background from seal images using Canvas
 const MAX_CANVAS_PIXELS = 4000000; // 4MP limit to prevent decompression bombs
 const MAX_CANVAS_DIM = 2000;
-const removeBackground = (dataUrl, threshold = 240) => new Promise((resolve) => {
+const removeBackground = (dataUrl, threshold = 220) => new Promise((resolve) => {
   const img = new Image();
   img.onload = () => {
     if (img.width * img.height > MAX_CANVAS_PIXELS || img.width > MAX_CANVAS_DIM || img.height > MAX_CANVAS_DIM) {
@@ -1092,7 +1092,7 @@ function InvoicePreview({ invoice, settings, onBack, onSave }) {
       const opt = {
         margin: 0,
         filename: safeFilename,
-        image: { type: "jpeg", quality: 0.98 },
+        image: { type: "png", quality: 1 },
         html2canvas: { scale: 2, useCORS: true, letterRendering: true, allowTaint: true },
         jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
       };
