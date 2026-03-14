@@ -69,7 +69,7 @@ const isSafeImageUrl = (url) => !url || SAFE_IMAGE_PREFIX_RE.test(url);
 // Remove white/light background from seal images using Canvas
 const MAX_CANVAS_PIXELS = 4000000; // 4MP limit to prevent decompression bombs
 const MAX_CANVAS_DIM = 2000;
-const removeBackground = (dataUrl, threshold = 220) => new Promise((resolve) => {
+const removeBackground = (dataUrl) => new Promise((resolve) => {
   const img = new Image();
   img.onload = () => {
     if (img.width * img.height > MAX_CANVAS_PIXELS || img.width > MAX_CANVAS_DIM || img.height > MAX_CANVAS_DIM) {
@@ -83,10 +83,16 @@ const removeBackground = (dataUrl, threshold = 220) => new Promise((resolve) => 
     ctx.drawImage(img, 0, 0);
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
+    // Gradual transparency based on brightness
+    // HARD(200)以上 → 完全透明、SOFT(160)〜HARD → 段階的透過
+    const HARD = 200, SOFT = 160;
     for (let i = 0; i < data.length; i += 4) {
-      const r = data[i], g = data[i+1], b = data[i+2];
-      if (r > threshold && g > threshold && b > threshold) {
-        data[i+3] = 0; // make transparent
+      const brightness = (data[i] + data[i+1] + data[i+2]) / 3;
+      if (brightness > HARD) {
+        data[i+3] = 0;
+      } else if (brightness > SOFT) {
+        const alpha = Math.round(255 * (1 - (brightness - SOFT) / (HARD - SOFT)));
+        data[i+3] = Math.min(data[i+3], alpha);
       }
     }
     ctx.putImageData(imageData, 0, 0);
