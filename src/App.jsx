@@ -83,15 +83,31 @@ const removeBackground = (dataUrl) => new Promise((resolve) => {
     ctx.drawImage(img, 0, 0);
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
-    // Gradual transparency based on brightness
-    // HARD(200)以上 → 完全透明、SOFT(160)〜HARD → 段階的透過
-    const HARD = 200, SOFT = 160;
+    // Two-pass: (1) detect background color, (2) remove it
+    // Pass 1: sample corners to find background color
+    const w = canvas.width, h = canvas.height;
+    const cornerPixels = [];
+    const sampleSize = Math.max(1, Math.floor(Math.min(w, h) * 0.1));
+    for (let y = 0; y < sampleSize; y++) {
+      for (let x = 0; x < sampleSize; x++) {
+        for (const [ox, oy] of [[0,0],[w-sampleSize,0],[0,h-sampleSize],[w-sampleSize,h-sampleSize]]) {
+          const idx = ((oy+y)*w + (ox+x)) * 4;
+          cornerPixels.push([data[idx], data[idx+1], data[idx+2]]);
+        }
+      }
+    }
+    const bgR = cornerPixels.reduce((s,p) => s+p[0], 0) / cornerPixels.length;
+    const bgG = cornerPixels.reduce((s,p) => s+p[1], 0) / cornerPixels.length;
+    const bgB = cornerPixels.reduce((s,p) => s+p[2], 0) / cornerPixels.length;
+    // Pass 2: remove pixels similar to background
+    const HARD_DIST = 40, SOFT_DIST = 80;
     for (let i = 0; i < data.length; i += 4) {
-      const brightness = (data[i] + data[i+1] + data[i+2]) / 3;
-      if (brightness > HARD) {
+      const dr = data[i]-bgR, dg = data[i+1]-bgG, db = data[i+2]-bgB;
+      const dist = Math.sqrt(dr*dr + dg*dg + db*db);
+      if (dist < HARD_DIST) {
         data[i+3] = 0;
-      } else if (brightness > SOFT) {
-        const alpha = Math.round(255 * (1 - (brightness - SOFT) / (HARD - SOFT)));
+      } else if (dist < SOFT_DIST) {
+        const alpha = Math.round(255 * ((dist - HARD_DIST) / (SOFT_DIST - HARD_DIST)));
         data[i+3] = Math.min(data[i+3], alpha);
       }
     }
