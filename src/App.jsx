@@ -362,7 +362,7 @@ function LockScreen({ isNew, onUnlock, onWipe }) {
         <div style={{ textAlign:"center", marginBottom:24 }}>
           <div style={{ fontSize:48, marginBottom:8 }}>📄</div>
           <h1 style={{ fontSize:18, fontWeight:800, color:"#2C3E50", margin:0, lineHeight:1.4 }}>大城ツル（88）の<br />書類の達人</h1>
-          <p style={{ fontSize:12, color:"#6B7280", marginTop:4, lineHeight:1.5 }}>誰でも簡単にPDFでダウンロード</p>
+          <p style={{ fontSize:12, color:"#6B7280", marginTop:4, lineHeight:1.5 }}>誰でも無料で作れるさぁ<br />4種類対応（請求書、見積書、納品書、受領書）</p>
           <p style={{ fontSize:13, color:"#6B7280", marginTop:12, lineHeight:1.6 }}>
             {isNew ? "データ保護のためパスワードを設定してください" : "パスワードを入力してください"}
           </p>
