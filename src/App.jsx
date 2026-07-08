@@ -360,7 +360,7 @@ function LockScreen({ isNew, onUnlock, onWipe }) {
     <div style={{ minHeight:"100vh", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", background:"#F8F7F4", padding:20, fontFamily:"'Hiragino Kaku Gothic ProN','Meiryo',sans-serif" }}>
       <div style={{ background:"#fff", borderRadius:16, padding:32, width:"100%", maxWidth:360, boxShadow:"0 4px 24px rgba(0,0,0,0.1)" }}>
         <div style={{ textAlign:"center", marginBottom:24 }}>
-          <div style={{ fontSize:48, marginBottom:8 }}>📄</div>
+          <img src="/logo.png" alt="書類の達人" style={{ width:160, marginBottom:8 }} />
           <h1 style={{ fontSize:16, fontWeight:800, color:"#2C3E50", margin:0, lineHeight:1.5 }}>大城ツル（88）の<br /><span style={{ fontSize:26 }}>書類の達人</span></h1>
           <p style={{ fontSize:12, color:"#6B7280", marginTop:14, lineHeight:1.5 }}>誰でも無料で作れるさぁ<br />4種類対応（請求書、見積書、納品書、受領書）</p>
           <p style={{ fontSize:13, color:"#6B7280", marginTop:22, lineHeight:1.6 }}>
