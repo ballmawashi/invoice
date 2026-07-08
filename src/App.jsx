@@ -457,6 +457,7 @@ function ChangePasswordModal({ settings, invoices, onChanged, onClose }) {
 function OnboardingScreen({ onComplete }) {
   const [step, setStep] = useState(0);
   const steps = [
+    { icon: "🔒", title: "はじめに：データはあなたの端末だけ", desc: "データは端末内にのみ保存され、サーバーには一切送信されません。個人情報が外部に送信される心配はありません。" },
     { icon: "⚙️", title: "ステップ 1：会社情報を入力", desc: "設定画面で「法人」または「個人事業主」を選択し、会社名・住所・振込先などを入力します。印影やロゴもアップロードできます。" },
     { icon: "📄", title: "ステップ 2：請求書を作成", desc: "「新規作成」から宛先・件名・明細を入力します。見積書・納品書・受領書も作成できます。入力内容は自動保存されます。" },
     { icon: "👁️", title: "ステップ 3：プレビュー・PDF", desc: "「プレビュー・PDF」で仕上がりを確認し、PDFをダウンロードできます。源泉徴収の自動計算にも対応しています。" },
