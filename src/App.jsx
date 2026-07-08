@@ -170,6 +170,9 @@ const deepSanitizeObj = (obj) => {
 const STORAGE_KEY = "invoiceApp_v3";
 const PBKDF2_ITERATIONS = 600000;
 
+// v2 stored data as plaintext JSON before encryption was introduced — purge it
+try { localStorage.removeItem("invoiceApp_v2"); } catch { /* storage unavailable */ }
+
 const bufToB64 = (buf) => {
   const bytes = new Uint8Array(buf instanceof ArrayBuffer ? buf : buf.buffer);
   let str = "";
@@ -409,7 +412,7 @@ function ChangePasswordModal({ settings, invoices, onChanged, onClose }) {
     e.preventDefault();
     if (loading || !newPw) return;
     setError("");
-    if (newPw.length < 6) { setError("パスワードは6文字以上必要です"); return; }
+    if (newPw.length < 8) { setError("パスワードは8文字以上必要です"); return; }
     if (newPw !== newPw2) { setError("パスワードが一致しません"); return; }
     setLoading(true);
     try {
