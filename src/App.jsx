@@ -321,11 +321,32 @@ const statusColors = { draft: "#8B7355", sent: "#2563EB", paid: "#16A34A", cance
 // ============================================================
 // LOCK SCREEN
 // ============================================================
+// アプリを開いてから一度でも再生したか（タブ切り替えでの再マウントでは再生しない、ページ再読み込み＝起動のたびにリセットされる）
+let introPlayedThisLaunch = false;
+
 function LockScreen({ isNew, onUnlock, onWipe }) {
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showIntro, setShowIntro] = useState(() => !introPlayedThisLaunch);
+  const videoRef = useRef(null);
+
+  const endIntro = () => {
+    introPlayedThisLaunch = true;
+    setShowIntro(false);
+  };
+
+  // 音あり再生を試み、ブラウザの自動再生制限でブロックされたら無音で再生し直す
+  useEffect(() => {
+    if (!showIntro) return;
+    const v = videoRef.current;
+    if (!v) return;
+    v.play().catch(() => {
+      v.muted = true;
+      v.play().catch(() => { endIntro(); });
+    });
+  }, [showIntro]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -360,8 +381,12 @@ function LockScreen({ isNew, onUnlock, onWipe }) {
     <div style={{ minHeight:"100vh", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", background:"#F8F7F4", padding:20, fontFamily:"'Hiragino Kaku Gothic ProN','Meiryo',sans-serif" }}>
       <div style={{ background:"#fff", borderRadius:16, padding:32, width:"100%", maxWidth:360, boxShadow:"0 4px 24px rgba(0,0,0,0.1)" }}>
         <div style={{ textAlign:"center", marginBottom:24 }}>
-          <img src="/logo.png" alt="書類の達人" style={{ width:160, marginBottom:8 }} />
-          <h1 style={{ fontSize:16, fontWeight:800, color:"#2C3E50", margin:0, lineHeight:1.5 }}>大城ツル（88）の<br /><span style={{ fontSize:26 }}>書類の達人</span></h1>
+          {showIntro ? (
+            <video ref={videoRef} src="/intro.mp4" playsInline onEnded={endIntro} onClick={endIntro}
+              style={{ width:"100%", maxWidth:280, borderRadius:12, boxShadow:"0 4px 12px rgba(0,0,0,0.15)", cursor:"pointer", marginBottom:8 }} />
+          ) : (
+            <img src="/logo.png" alt="書類の達人" style={{ width:200, marginBottom:8 }} />
+          )}
           <p style={{ fontSize:12, color:"#6B7280", marginTop:14, lineHeight:1.5 }}>誰でも無料で作れるさぁ<br />4種類対応（請求書、見積書、納品書、受領書）</p>
           <p style={{ fontSize:13, color:"#6B7280", marginTop:22, lineHeight:1.6 }}>
             {isNew ? "データ保護のためパスワードを設定してください" : "パスワードを入力してください"}
